@@ -35,8 +35,8 @@
     <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;" vr-mode-ui="enabled: false">
 
       <a-assets>
-        <video 
-          id="snow-video" 
+        < 
+          id="snow-" 
           src="https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sintel.mp4" 
           preload="auto" 
           loop="true" 
@@ -44,19 +44,19 @@
           playsinline 
           webkit-playsinline
           crossOrigin="anonymous">
-        </video>
+        </>
         </a-assets>
 
       <a-entity camera look-controls click-to-play>
         
-        <a-video 
-          src="#snow-video" 
+        <a- 
+          src="#snow.mp4" 
           position="0 0 -3" 
           width="4" 
           height="2.25"
           scale="1.5 1.5 1.5"
           material="shader: flat; transparent: true; blending: additive; opacity: 0.9;">
-        </a-video>
+        </a->
 
       </a-entity>
 
