@@ -1,39 +1,34 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Native FOV)</title>
+    <title>Snow AR Camera (Fullscreen Wide)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
 
     <style>
       /* --- 基本設定 --- */
       html, body {
         margin: 0; padding: 0; width: 100%; height: 100%;
-        overflow: hidden; background-color: #000; /* 余白は黒 */
+        overflow: hidden; background-color: #000;
         font-family: sans-serif;
         overscroll-behavior: none;
       }
 
       /* 素材（非表示） */
       .hidden-source {
-        position: absolute; top: 0; left: 0;
-        width: 10px; height: 10px;
-        opacity: 0.01;
-        pointer-events: none;
-        z-index: -99;
+        position: absolute; top: 0; left: 0; width: 10px; height: 10px;
+        opacity: 0.01; pointer-events: none; z-index: -99;
       }
 
       /* メイン表示＆録画用キャンバス */
       #work-canvas {
-        /* 画面中央に配置 */
         position: fixed;
         top: 50%; left: 50%;
         transform: translate(-50%, -50%);
-        /* 画面からはみ出さないように最大サイズを制限 */
-        max-width: 100%;
-        max-height: 100%;
-        /* アスペクト比を維持して収める */
-        object-fit: contain; 
+        /* 画面を埋め尽くす（アスペクト比維持はJSで制御） */
+        min-width: 100%; min-height: 100%;
+        width: auto; height: auto;
         z-index: 1;
+        display: block;
       }
 
       /* --- UIパーツ --- */
@@ -57,7 +52,6 @@
       #reload-btn { right: 20px; }
       #flip-btn { left: 20px; display: none; }
 
-      /* スタート画面 */
       #start-screen {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background-color: rgba(0,0,0,0.9);
@@ -79,7 +73,6 @@
         white-space: pre-wrap;
       }
 
-      /* プレビュー画面 */
       #preview-modal {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background-color: rgba(0,0,0,0.95);
@@ -100,8 +93,6 @@
       .btn-save { background-color: #ff3b30; color: white; }
       .btn-close { background-color: #555; color: white; }
 
-
-      /* シャッターボタン */
       #shutter-container {
         position: fixed; bottom: 30px; left: 50%;
         transform: translateX(-50%);
@@ -149,7 +140,6 @@
   </head>
 
   <body>
-
     <button id="reload-btn" class="icon-btn" onclick="location.reload()">
       <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
     </button>
@@ -193,9 +183,6 @@
     <div id="flash"></div>
 
     <script>
-      // ==========================================
-      // DOM & 変数
-      // ==========================================
       const cameraVideo = document.getElementById('camera-feed');
       const snowV1 = document.getElementById('snow-1');
       const snowV2 = document.getElementById('snow-2');
@@ -259,12 +246,10 @@
         try {
           log(`カメラ起動中 (${facingMode === 'user' ? '自撮り' : '外向き'})...`);
           
-          // ★変更点：理想のWidth/Heightを指定せず、センサーのネイティブ比率を優先する
-          // ただし画質は落としたくないので、idealに大きい数字を指定して「高画質」だけ要求する
+          // 幅4096などの巨大な値を指定して、ハードウェアの最大解像度を引き出す
           stream = await navigator.mediaDevices.getUserMedia({
             video: { 
               facingMode: facingMode,
-              // 特定のアスペクト比(1280x720など)を強要しないことで、センサー全域(4:3など)を取得させる
               width: { ideal: 4096 }, 
               height: { ideal: 2160 } 
             },
@@ -274,7 +259,7 @@
           log("高画質指定失敗...標準設定で再試行");
           try {
              stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: facingMode }, // 何も指定しない
+              video: { facingMode: facingMode },
               audio: false 
             });
           } catch(e) {
@@ -305,9 +290,6 @@
         }
       });
 
-      // ==========================================
-      // 起動
-      // ==========================================
       startBtn.addEventListener('click', async () => {
         startBtn.disabled = true;
         startBtn.textContent = "起動中...";
@@ -317,15 +299,11 @@
           snowV1.loop = false;
           snowV2.loop = false;
           await snowV1.play();
-          
           await initCamera(currentFacingMode);
-
           startScreen.style.display = 'none';
           shutterContainer.style.display = 'block';
           flipBtn.style.display = 'flex';
-          
           drawCompositeFrame(); 
-
         } catch (err) {
           console.error(err);
           startBtn.disabled = false;
@@ -335,10 +313,9 @@
       });
 
       // ==========================================
-      // 描画ループ (映像全体を表示＝黒帯あり)
+      // 描画ループ (画面いっぱい・クロップあり)
       // ==========================================
       function drawCompositeFrame() {
-        // カメラ映像の生サイズ
         const vw = cameraVideo.videoWidth;
         const vh = cameraVideo.videoHeight;
 
@@ -347,11 +324,11 @@
            return;
         }
 
-        // Canvasの表示サイズ（ブラウザ画面のサイズ）を取得
+        // 画面サイズ取得
         const screenW = window.innerWidth;
         const screenH = window.innerHeight;
 
-        // Canvas自体の解像度は画面サイズに合わせる
+        // Canvasサイズは画面サイズに追従
         if (canvas.width !== screenW || canvas.height !== screenH) {
           canvas.width = screenW;
           canvas.height = screenH;
@@ -364,27 +341,27 @@
         bufferCtx.fillStyle = '#000000';
         bufferCtx.fillRect(0, 0, screenW, screenH);
 
-        // ★ここがミソ：カメラ映像を「画面に収まるように(contain)」計算する
+        // ★計算ロジック：画面を埋め尽くす (Cover)
         const videoAspect = vw / vh;
         const screenAspect = screenW / screenH;
         
         let drawX, drawY, drawW, drawH;
 
         if (screenAspect > videoAspect) {
-          // 画面の方が横長（映像の左右に黒帯）
-          drawH = screenH;
-          drawW = drawH * videoAspect;
-          drawX = (screenW - drawW) / 2;
-          drawY = 0;
-        } else {
-          // 画面の方が縦長（映像の上下に黒帯）
+          // 画面の方が横長 -> 幅を合わせて、高さははみ出す（上下カット）
           drawW = screenW;
-          drawH = drawW / videoAspect;
+          drawH = screenW / videoAspect;
           drawX = 0;
           drawY = (screenH - drawH) / 2;
+        } else {
+          // 画面の方が縦長 -> 高さを合わせて、幅ははみ出す（左右カット）
+          drawH = screenH;
+          drawW = screenH * videoAspect;
+          drawX = (screenW - drawW) / 2;
+          drawY = 0;
         }
 
-        // --- 雪動画のクロスフェード処理 ---
+        // --- 雪動画 (クロスフェード) ---
         const duration = currentSnowVideo.duration;
         const currentTime = currentSnowVideo.currentTime;
 
@@ -399,7 +376,7 @@
             const alphaCurrent = Math.max(0, timeLeft / FADE_DURATION);
             const alphaNext = 1.0 - alphaCurrent;
             
-            // 雪も、カメラが表示されているエリア(drawX,Y,W,H)だけに描画する
+            // 雪動画もカメラと同じ座標(drawX,Y,W,H)に合わせて描画
             drawSnowToBuffer(currentSnowVideo, drawX, drawY, drawW, drawH, alphaCurrent);
             drawSnowToBuffer(nextSnowVideo, drawX, drawY, drawW, drawH, alphaNext);
           } else {
@@ -420,29 +397,29 @@
         }
 
         // --- メイン合成 ---
-        // 1. カメラを描画（計算したエリアに）
         ctx.globalCompositeOperation = 'source-over';
-        // 黒背景でクリアしてから描く
+        // 画面を黒でリセット
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, screenW, screenH);
         
+        // カメラ描画（拡大・クロップ）
         ctx.drawImage(cameraVideo, drawX, drawY, drawW, drawH);
 
-        // 2. 雪（バッファ）を合成
+        // 雪合成
         ctx.globalCompositeOperation = 'screen';
         ctx.drawImage(bufferCanvas, 0, 0);
 
         requestAnimationFrame(drawCompositeFrame);
       }
 
-      // 雪動画を指定エリアに描画
       function drawSnowToBuffer(video, dx, dy, dw, dh, alpha) {
         if (alpha <= 0.01) return;
         const vw = video.videoWidth;
         const vh = video.videoHeight;
         if (vw === 0 || vh === 0) return;
 
-        // クロップ処理（雪動画のアスペクト比を維持して、描画エリアを埋める）
+        // 動画アスペクト比計算 (object-fit: cover for video inside draw area)
+        // ここは「描画エリア(dw,dh)」に対して「雪動画(vw,vh)」をどう合わせるか
         const drawAspect = dw / dh;
         const videoAspect = vw / vh;
         let sx, sy, sw, sh;
@@ -499,7 +476,6 @@
         previewVideo.pause();
         previewVideo.src = "";
         previewImg.src = "";
-        
         shutterContainer.style.display = 'block';
         flipBtn.style.display = 'flex';
         document.getElementById('reload-btn').style.display = 'flex';
@@ -511,14 +487,11 @@
       function takePhoto() {
         if (shutterLock) return;
         shutterLock = true;
-
         const flash = document.getElementById('flash');
         flash.style.opacity = 1;
         setTimeout(() => flash.style.opacity = 0, 200);
-
         const dataURL = canvas.toDataURL('image/png');
         showPreview('photo', dataURL);
-
         setTimeout(() => { shutterLock = false; }, 1000);
       }
 
