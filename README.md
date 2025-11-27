@@ -1,7 +1,8 @@
+<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Instant Start)</title>
+    <title>Snow AR Camera (Force Play)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
     <style>
       h1:first-of-type { display: none !important; }
@@ -70,7 +71,7 @@
         display: flex; flex-direction: column;
         justify-content: space-between; align-items: center;
         padding: 40px 20px; box-sizing: border-box;
-        transition: opacity 0.3s ease; /* フェードアウトを速く */
+        transition: opacity 0.3s ease;
       }
 
       #howto-container {
@@ -189,8 +190,8 @@
 
     <div id="view-container">
       <video id="camera-feed" autoplay muted playsinline></video>
-      <video id="snow-1" class="snow-layer" src="snow.mp4" preload="auto" muted playsinline webkit-playsinline></video>
-      <video id="snow-2" class="snow-layer" src="snow.mp4" preload="auto" muted playsinline webkit-playsinline></video>
+      <video id="snow-1" class="snow-layer" src="snow.mp4" muted playsinline webkit-playsinline></video>
+      <video id="snow-2" class="snow-layer" src="snow.mp4" muted playsinline webkit-playsinline></video>
     </div>
 
     <canvas id="work-canvas"></canvas>
@@ -265,22 +266,10 @@
       }
 
       async function initApp() {
-        // ★ここがミソ！ページ読み込み完了と同時に、裏で雪を再生開始する！
-        // opacityが0なので見えないが、バッファリングと再生を開始させる
-        snowV1.style.opacity = 1; // 1つ目は不透明度1にしておく（START画面の裏）
+        // 初期状態：1つ目を不透明にしておく
+        snowV1.style.opacity = 1; 
         snowV2.style.opacity = 0;
         
-        const playPromise1 = snowV1.play();
-        const playPromise2 = snowV2.play();
-
-        // もしブラウザが「ユーザー操作なしの自動再生」を許可してくれれば、これでOK。
-        // 許可されなくてもエラーを握りつぶして、STARTボタンで再トライする。
-        if (playPromise1 !== undefined) playPromise1.catch(() => {});
-        if (playPromise2 !== undefined) playPromise2.catch(() => {});
-        
-        // すぐに監視ループ開始
-        monitorSnowVideo();
-
         try {
           await initCamera(currentFacingMode);
         } catch (err) {
@@ -290,30 +279,31 @@
 
       window.onload = initApp;
 
+      // ★ここが修正ポイント：クリックイベント内で強制再生
       startBtn.addEventListener('click', () => {
-        // START画面を消す
+        // 1. UIを消す
         startScreen.style.opacity = '0';
-        setTimeout(() => { startScreen.style.display = 'none'; }, 300); // 0.3秒で消す
+        setTimeout(() => { startScreen.style.display = 'none'; }, 300);
         
         shutterContainer.style.display = 'block';
         flipBtn.style.display = 'flex';
         reloadBtn.style.display = 'flex';
         
-        // ★ダメ押しの一手
-        // もし裏での再生がブロックされていたら、この「クリック」をトリガーに強制再生！
-        if(currentSnowVideo.paused) {
-            currentSnowVideo.play().catch(e => console.log("Force play:", e));
-        }
-        if(nextSnowVideo.paused) {
-            // 次の動画もついでに「再生＆即一時停止」して準備させたいが
-            // 複雑になるので、とりあえずplay()だけ投げておく
-             nextSnowVideo.play().catch(() => {}).then(() => {
-                 // ループ管理のために一旦止めてもいいが、
-                 // 即座にクロスフェードさせるなら流しっぱなしでもOK
-                 // ここでは軽量化のため、次の出番までpauseしておく
-                 nextSnowVideo.pause(); 
-             });
-        }
+        // 2. このクリックイベントをトリガーにして全動画を「再生」する
+        // これでスマホの再生ブロックを解除できる
+        snowV1.play().then(() => {
+            console.log("snow1 started");
+        }).catch(e => console.error("snow1 fail", e));
+
+        snowV2.play().then(() => {
+            // 2つ目は裏で待機させたいので、再生が成功したら即ポーズしてもええし
+            // そのまま流しておいてもopacity:0やから見えへん。
+            // 確実に動かすためにとりあえず再生しとくのが無難や。
+            console.log("snow2 started");
+        }).catch(e => console.error("snow2 fail", e));
+        
+        // 3. 監視ループ開始
+        monitorSnowVideo();
       });
 
       async function initCamera(facingMode) {
@@ -352,11 +342,16 @@
         const duration = currentSnowVideo.duration;
         const currentTime = currentSnowVideo.currentTime;
 
+        // ★万が一再生が止まってたら叩き起こす
+        if(currentSnowVideo.paused) {
+            currentSnowVideo.play().catch(()=>{});
+        }
+
         if (duration && duration > 0) {
           const timeLeft = duration - currentTime;
           
           if (timeLeft <= FADE_DURATION) {
-            // 次の動画準備
+            // 次の動画の準備（止まってたら再生）
             if (nextSnowVideo.paused) nextSnowVideo.play().catch(()=>{});
             
             const alphaCurrent = Math.max(0, timeLeft / FADE_DURATION);
@@ -364,31 +359,26 @@
             currentSnowVideo.style.opacity = alphaCurrent;
             nextSnowVideo.style.opacity = alphaNext;
           } else {
-            // 通常再生中
             currentSnowVideo.style.opacity = 1;
             nextSnowVideo.style.opacity = 0;
-            // メモリ節約のため待機動画は止める
+            // 待機中は止めておく（軽量化）
             if (!nextSnowVideo.paused) {
               nextSnowVideo.pause();
               nextSnowVideo.currentTime = 0;
             }
           }
 
+          // ループ切り替え
           if (currentSnowVideo.ended || timeLeft <= 0) {
             currentSnowVideo.style.opacity = 0;
             nextSnowVideo.style.opacity = 1;
             const temp = currentSnowVideo;
             currentSnowVideo = nextSnowVideo;
             nextSnowVideo = temp;
-            // 切り替え完了後、元メインは停止
+            // 切り替わった後の裏方ビデオは停止
             nextSnowVideo.pause();
             nextSnowVideo.currentTime = 0;
           }
-        } else {
-            // 再生が止まってたら動かす（スタート画面が消えている場合）
-            if(currentSnowVideo.paused && startScreen.style.display === 'none') {
-                currentSnowVideo.play().catch(()=>{});
-            }
         }
       }
 
@@ -404,7 +394,6 @@
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, vw, vh);
 
-        // カメラ
         const camW = cameraVideo.videoWidth;
         const camH = cameraVideo.videoHeight;
         if(camW && camH) {
@@ -421,7 +410,6 @@
             ctx.drawImage(cameraVideo, csx, csy, csw, csh, 0, 0, vw, vh);
         }
 
-        // 雪
         ctx.globalCompositeOperation = 'screen';
         function drawVideoCover(vid, alpha) {
             if(alpha <= 0.01) return;
