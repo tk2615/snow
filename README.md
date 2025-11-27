@@ -1,23 +1,23 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Final Contrast Fix)</title>
+    <title>Snow AR Camera (Debug)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
 
     <style>
       /* --- 基本設定 --- */
       html, body {
         margin: 0; padding: 0; width: 100%; height: 100%;
-        overflow: hidden; background-color: black;
+        overflow: hidden; background-color: #000033; /* 背景を濃い青に（カメラ死んでる確認用） */
         font-family: sans-serif;
         overscroll-behavior: none;
       }
 
-      /* 動画素材（非表示） */
+      /* 素材（非表示） */
       .hidden-source {
         position: absolute; top: 0; left: 0;
         width: 10px; height: 10px;
-        opacity: 0.01; /* 完全に消さずに再生維持 */
+        opacity: 0.01;
         pointer-events: none;
         z-index: -99;
       }
@@ -31,23 +31,31 @@
         width: auto; height: auto;
         z-index: 1;
         display: block;
+        background-color: #000033; /* Canvas自体も青くしとく */
       }
 
       /* --- UIパーツ --- */
       #start-screen {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background-color: rgba(0,0,0,0.8);
+        background-color: rgba(0,0,0,0.9);
         z-index: 999;
         display: flex; justify-content: center; align-items: center; flex-direction: column;
         color: white;
+        padding: 20px;
+        box-sizing: border-box;
       }
       #start-btn {
         padding: 15px 40px; font-size: 18px;
         background: #ff3b30; color: white;
         border: none; border-radius: 30px;
         cursor: pointer; font-weight: bold;
+        margin-bottom: 20px;
       }
-      #error-msg { margin-top: 20px; color: #ff3b30; font-size: 14px; text-align: center; }
+      #status-msg { 
+        color: #ffffff; font-size: 16px; text-align: center; line-height: 1.5;
+        white-space: pre-wrap; /* 改行を表示 */
+      }
+      .error-text { color: #ff3b30; font-weight: bold; }
 
       #shutter-container {
         position: fixed; bottom: 30px; left: 50%;
@@ -93,7 +101,7 @@
 
     <div id="start-screen">
       <button id="start-btn">カメラを起動する</button>
-      <div id="error-msg"></div>
+      <div id="status-msg">※カメラの使用を許可してください</div>
     </div>
 
     <video id="camera-feed" class="hidden-source" autoplay muted playsinline></video>
@@ -119,7 +127,7 @@
       const progressCircle = document.querySelector('.progress-ring__circle');
       const startScreen = document.getElementById('start-screen');
       const startBtn = document.getElementById('start-btn');
-      const errorMsg = document.getElementById('error-msg');
+      const statusMsg = document.getElementById('status-msg');
       
       const radius = progressCircle.r.baseVal.value;
       const circumference = radius * 2 * Math.PI;
@@ -135,27 +143,61 @@
       let isLongPress = false;
       const LONG_PRESS_DURATION = 500;
 
+      // ログ表示用ヘルパー
+      function log(msg, isError = false) {
+        statusMsg.innerHTML = msg;
+        if (isError) statusMsg.classList.add('error-text');
+        console.log(msg);
+      }
+
       // ==========================================
-      // 1. 起動処理
+      // 1. 起動処理（超強化版）
       // ==========================================
       startBtn.addEventListener('click', async () => {
         startBtn.disabled = true;
         startBtn.textContent = "起動中...";
+        log("初期化中...");
 
         try {
-          await snowVideo.play();
+          // 1. 動画再生トライ
+          try {
+            await snowVideo.play();
+            log("動画ロードOK...次はカメラ");
+          } catch (e) {
+            log("動画再生エラー: " + e.message + "\n(タッチで再生できるか試行します)");
+          }
+
+          // 2. カメラ取得トライ（再試行ロジック付き）
+          let stream = null;
           
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { 
-              facingMode: 'environment', 
-              width: { ideal: 1280 },
-              height: { ideal: 720 } 
-            },
-            audio: false 
-          });
+          try {
+            // トライ1: 指定解像度
+            log("カメラ接続中(高画質設定)...");
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+              audio: false 
+            });
+          } catch (err1) {
+            log("高画質設定失敗: " + err1.message + "\n標準設定で再試行します...");
+            try {
+              // トライ2: 何でもいいから映してくれ設定
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment' },
+                audio: false 
+              });
+            } catch (err2) {
+              throw new Error("カメラ起動に完全失敗: " + err2.message + "\n※ブラウザの設定でカメラ許可を確認してください。\n※HTTPS(鍵マーク)のサイトでないと動きません。");
+            }
+          }
+
+          if (!stream) throw new Error("ストリームが空です");
+
           cameraVideo.srcObject = stream;
+          log("カメラ取得成功！映像待機中...");
           
+          // 映像が実際に来るまで待つ
           cameraVideo.onloadedmetadata = () => {
+             log("映像受信開始！");
              startScreen.style.display = 'none';
              shutterContainer.style.display = 'block';
              drawCompositeFrame(); 
@@ -165,40 +207,42 @@
           console.error(err);
           startBtn.disabled = false;
           startBtn.textContent = "再試行";
-          errorMsg.textContent = "エラー: " + (err.message || "起動失敗");
+          log(err.message, true);
         }
       });
 
       // ==========================================
-      // 2. 合成ループ（修正の肝）
+      // 2. 合成ループ
       // ==========================================
       function drawCompositeFrame() {
-        if (cameraVideo.readyState < 2) {
+        const cw = cameraVideo.videoWidth;
+        const ch = cameraVideo.videoHeight;
+
+        // まだカメラの準備ができてない場合
+        if (cw === 0 || ch === 0) {
            requestAnimationFrame(drawCompositeFrame);
            return;
         }
-
-        const cw = cameraVideo.videoWidth;
-        const ch = cameraVideo.videoHeight;
 
         if (canvas.width !== cw || canvas.height !== ch) {
           canvas.width = cw;
           canvas.height = ch;
         }
 
-        // 1. カメラ描画（フィルターなし）
+        // --- 背景クリア（デバッグ用：青） ---
+        // カメラが描画されれば上書きされて消える。
+        // もし青い画面に雪が降ってたら、カメラ映像が透明か来てないってことや。
+        ctx.fillStyle = "#000033";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 1. カメラ描画
         ctx.globalCompositeOperation = 'source-over';
-        ctx.filter = 'none'; // リセット
+        ctx.filter = 'none';
         ctx.drawImage(cameraVideo, 0, 0, cw, ch);
 
-        // 2. 雪の合成
+        // 2. 雪の合成（コントラスト強化）
         ctx.globalCompositeOperation = 'screen'; 
-        
-        // ★ここが最大の修正ポイント！★
-        // 雪の動画を描画する瞬間だけ、コントラストを爆上げして明るさを下げる。
-        // これで「グレーっぽい黒背景」を強制的に「完全な黒（RGB 0,0,0）」にする。
-        // 結果、screen合成で完全に透明になる。
-        ctx.filter = 'contrast(200%) brightness(60%)';
+        ctx.filter = 'contrast(150%) brightness(60%)'; // 少しマイルドに調整
 
         const vw = snowVideo.videoWidth;
         const vh = snowVideo.videoHeight;
@@ -221,13 +265,10 @@
           }
           
           if (snowVideo.paused) snowVideo.play().catch(()=>{});
-
           ctx.drawImage(snowVideo, sx, sy, sw, sh, 0, 0, cw, ch);
         }
 
-        // 次のループのためにフィルターを戻しておく
         ctx.filter = 'none';
-
         requestAnimationFrame(drawCompositeFrame);
       }
 
@@ -235,7 +276,6 @@
       // 3. 撮影・録画機能
       // ==========================================
       function takePhoto() {
-        // 写真を撮る瞬間もフィルター処理済みのCanvasを使うから綺麗
         const flash = document.getElementById('flash');
         flash.style.opacity = 1;
         setTimeout(() => flash.style.opacity = 0, 200);
