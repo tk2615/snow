@@ -1,7 +1,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Preview Mode)</title>
+    <title>Snow AR Camera (Flip & Icon)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
 
     <style>
@@ -35,21 +35,29 @@
 
       /* --- UIパーツ --- */
       
-      /* リロードボタン */
-      #reload-btn {
-        position: fixed; top: 20px; right: 20px;
+      /* 共通ボタン（リロード・カメラ切替）のスタイル */
+      .icon-btn {
+        position: fixed; top: 20px;
         z-index: 500;
         width: 44px; height: 44px;
-        background: rgba(255, 255, 255, 0.3);
+        background: rgba(0, 0, 0, 0.3);
         border: 1px solid rgba(255, 255, 255, 0.5);
         border-radius: 50%;
         color: white;
-        font-size: 20px;
         cursor: pointer;
         display: flex; justify-content: center; align-items: center;
         backdrop-filter: blur(4px);
         -webkit-tap-highlight-color: transparent; 
+        transition: background 0.2s;
       }
+      .icon-btn:active { background: rgba(255, 255, 255, 0.3); }
+      .icon-btn svg { width: 24px; height: 24px; fill: white; }
+
+      /* 右上：リロード */
+      #reload-btn { right: 20px; }
+      
+      /* 左上：カメラ切り替え（新機能） */
+      #flip-btn { left: 20px; display: none; /* 最初は隠す（カメラ起動後に表示） */ }
 
       /* スタート画面 */
       #start-screen {
@@ -73,45 +81,29 @@
         white-space: pre-wrap;
       }
 
-      /* --- プレビュー画面（新機能） --- */
+      /* --- プレビュー画面 --- */
       #preview-modal {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background-color: rgba(0,0,0,0.95); /* 背景を暗く */
-        z-index: 2000; /* 最前面 */
-        display: none; /* 最初は隠す */
+        background-color: rgba(0,0,0,0.95);
+        z-index: 2000;
+        display: none;
         flex-direction: column;
-        justify-content: center;
-        align-items: center;
+        justify-content: center; align-items: center;
         color: white;
       }
-      
-      /* プレビュー画像・動画のスタイル */
       #preview-img, #preview-video {
-        max-width: 90%;
-        max-height: 70%;
-        border-radius: 8px;
-        box-shadow: 0 0 20px rgba(0,0,0,0.5);
-        margin-bottom: 20px;
-        object-fit: contain;
+        max-width: 90%; max-height: 70%;
+        border-radius: 8px; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        margin-bottom: 20px; object-fit: contain;
       }
-      
-      /* 案内テキスト */
-      .preview-text {
-        font-size: 14px; margin-bottom: 20px; color: #ccc;
-      }
-
-      /* ボタン群 */
-      .preview-buttons {
-        display: flex; gap: 20px;
-      }
-      .btn {
-        padding: 12px 30px; border-radius: 25px; border: none; font-size: 16px; font-weight: bold; cursor: pointer;
-      }
+      .preview-text { font-size: 14px; margin-bottom: 20px; color: #ccc; }
+      .preview-buttons { display: flex; gap: 20px; }
+      .btn { padding: 12px 30px; border-radius: 25px; border: none; font-size: 16px; font-weight: bold; cursor: pointer; }
       .btn-save { background-color: #ff3b30; color: white; }
       .btn-close { background-color: #555; color: white; }
 
 
-      /* シャッターボタン */
+      /* シャッターボタンエリア */
       #shutter-container {
         position: fixed; bottom: 30px; left: 50%;
         transform: translateX(-50%);
@@ -123,6 +115,7 @@
         display: none;
       }
 
+      /* 外側のゲージ */
       .progress-ring {
         position: absolute; top: 0; left: 0;
         width: 80px; height: 80px;
@@ -133,15 +126,30 @@
         stroke: #ff3b30; stroke-width: 4; fill: transparent;
       }
 
+      /* シャッターボタン本体 */
       #shutter-btn {
         position: absolute; top: 10px; left: 10px;
         width: 60px; height: 60px;
         background-color: white; border-radius: 50%;
         transition: all 0.2s;
+        display: flex; justify-content: center; align-items: center;
       }
+
+      /* カメラアイコン（SVG） */
+      #camera-icon {
+        width: 32px; height: 32px;
+        fill: #333;
+        transition: opacity 0.2s;
+      }
+
+      /* 録画中のスタイル */
       #shutter-container.recording #shutter-btn {
         width: 30px; height: 30px; top: 25px; left: 25px;
         border-radius: 4px; background-color: #ff3b30;
+      }
+      /* 録画中はカメラアイコンを消す */
+      #shutter-container.recording #camera-icon {
+        opacity: 0;
       }
 
       #flash {
@@ -154,7 +162,13 @@
 
   <body>
 
-    <button id="reload-btn" onclick="location.reload()">↻</button>
+    <button id="reload-btn" class="icon-btn" onclick="location.reload()">
+      <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+    </button>
+
+    <button id="flip-btn" class="icon-btn">
+      <svg viewBox="0 0 24 24"><path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-5 11.5V13H9v2.5L5.5 12 9 8.5V11h6V8.5l3.5 3.5-3.5 3.5z"/></svg>
+    </button>
 
     <div id="start-screen">
       <button id="start-btn">カメラを起動する</button>
@@ -164,15 +178,12 @@
     <div id="preview-modal">
       <img id="preview-img">
       <video id="preview-video" controls playsinline></video>
-      
       <p id="preview-msg-photo" class="preview-text">画像長押しで保存してください</p>
-      
       <div class="preview-buttons">
         <button id="btn-save-video" class="btn btn-save" style="display:none;">動画を保存</button>
         <button id="btn-close" class="btn btn-close">閉じる</button>
       </div>
     </div>
-
 
     <video id="camera-feed" class="hidden-source" autoplay muted playsinline></video>
     <video id="snow-1" class="hidden-source" src="snow.mp4" muted playsinline webkit-playsinline></video>
@@ -184,12 +195,19 @@
       <svg class="progress-ring">
         <circle class="progress-ring__circle" stroke-dasharray="240 240" stroke-dashoffset="240" r="38" cx="40" cy="40"/>
       </svg>
-      <div id="shutter-btn"></div>
+      <div id="shutter-btn">
+        <svg id="camera-icon" viewBox="0 0 24 24">
+          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" opacity="0"/> <path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>
+        </svg>
+      </div>
     </div>
 
     <div id="flash"></div>
 
     <script>
+      // ==========================================
+      // DOM & 変数
+      // ==========================================
       const cameraVideo = document.getElementById('camera-feed');
       const snowV1 = document.getElementById('snow-1');
       const snowV2 = document.getElementById('snow-2');
@@ -207,8 +225,8 @@
       const startScreen = document.getElementById('start-screen');
       const startBtn = document.getElementById('start-btn');
       const statusMsg = document.getElementById('status-msg');
+      const flipBtn = document.getElementById('flip-btn'); // カメラ切り替えボタン
 
-      // プレビュー関連のDOM
       const previewModal = document.getElementById('preview-modal');
       const previewImg = document.getElementById('preview-img');
       const previewVideo = document.getElementById('preview-video');
@@ -216,7 +234,7 @@
       const btnSaveVideo = document.getElementById('btn-save-video');
       const btnClose = document.getElementById('btn-close');
       
-      let currentPreviewUrl = null; // 生成したURLを保持（破棄用）
+      let currentPreviewUrl = null;
       
       const radius = progressCircle.r.baseVal.value;
       const circumference = radius * 2 * Math.PI;
@@ -227,7 +245,6 @@
       let recordedChunks = [];
       let isRecording = false;
       let recordingStartTime;
-      let selectedMimeType = '';
       
       let pressTimer;
       let isLongPress = false;
@@ -235,68 +252,82 @@
       let shutterLock = false; 
       const LONG_PRESS_DURATION = 500;
 
+      // カメラ設定管理用
+      let currentFacingMode = 'environment'; // 初期は外カメラ
+
       function log(msg) {
         statusMsg.innerHTML = msg;
         console.log(msg);
       }
 
       // ==========================================
-      // プレビュー機能
+      // カメラ初期化・切り替えロジック
       // ==========================================
-      function showPreview(type, url, filename) {
-        // 現在のプレビューURLがあればメモリ解放
-        if (currentPreviewUrl) {
-          URL.revokeObjectURL(currentPreviewUrl);
+      async function initCamera(facingMode) {
+        // 既存のストリームがあれば停止
+        if (cameraVideo.srcObject) {
+          cameraVideo.srcObject.getTracks().forEach(track => track.stop());
         }
-        currentPreviewUrl = url;
 
-        // モーダルを表示
-        previewModal.style.display = 'flex';
-        // シャッターボタンなどは隠すか、モーダルのz-indexが高いのでそのままでも良いが、誤操作防止で隠す
-        shutterContainer.style.display = 'none';
-
-        if (type === 'photo') {
-          // 静止画モード
-          previewImg.style.display = 'block';
-          previewVideo.style.display = 'none';
-          previewMsgPhoto.style.display = 'block'; // 「長押しで保存」
-          btnSaveVideo.style.display = 'none'; // 動画保存ボタンは隠す
-
-          previewImg.src = url;
-
-        } else {
-          // 動画モード
-          previewImg.style.display = 'none';
-          previewVideo.style.display = 'block';
-          previewMsgPhoto.style.display = 'none';
-          btnSaveVideo.style.display = 'block'; // 動画保存ボタンを表示
-
-          previewVideo.src = url;
-          previewVideo.play().catch(()=>{}); // 自動再生トライ
-
-          // 動画保存ボタンの挙動設定
-          btnSaveVideo.onclick = () => {
-            downloadFile(url, filename);
-          };
+        let stream = null;
+        try {
+          log(`カメラ起動中 (${facingMode === 'user' ? '自撮り' : '外向き'})...`);
+          
+          // 指定モードで取得トライ
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { 
+              facingMode: facingMode, 
+              width: { ideal: 1280 }, 
+              height: { ideal: 720 } 
+            },
+            audio: false 
+          });
+        } catch (err) {
+          log("指定モード失敗...標準設定で再試行");
+          try {
+             // 失敗時は指定なしでトライ（PCなどでfacingModeがない場合への保険）
+             stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false 
+            });
+          } catch(e) {
+            throw e;
+          }
         }
-      }
 
-      function closePreview() {
-        previewModal.style.display = 'none';
-        previewVideo.pause();
-        previewVideo.src = "";
-        previewImg.src = "";
+        cameraVideo.srcObject = stream;
         
-        // カメラ画面のUIを復帰
-        shutterContainer.style.display = 'block';
+        // 映像が来るまで待機
+        return new Promise((resolve) => {
+          cameraVideo.onloadedmetadata = () => {
+            resolve();
+          };
+        });
       }
 
-      // 閉じるボタンイベント
-      btnClose.addEventListener('click', closePreview);
+      // 切り替えボタンの処理
+      flipBtn.addEventListener('click', async () => {
+        // モード反転
+        currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
+        
+        // ボタンを一時的に無効化（連打防止）
+        flipBtn.style.pointerEvents = 'none';
+        flipBtn.style.opacity = 0.5;
+
+        try {
+          await initCamera(currentFacingMode);
+          log(""); // ログクリア
+        } catch (err) {
+          log("カメラ切り替えエラー: " + err.message);
+        } finally {
+          flipBtn.style.pointerEvents = 'auto';
+          flipBtn.style.opacity = 1;
+        }
+      });
 
 
       // ==========================================
-      // 起動処理
+      // アプリ起動
       // ==========================================
       startBtn.addEventListener('click', async () => {
         startBtn.disabled = true;
@@ -308,27 +339,15 @@
           snowV2.loop = false;
           await snowV1.play();
           
-          let stream = null;
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-              audio: false 
-            });
-          } catch (err1) {
-            log("高画質NG...標準設定で再トライ");
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: 'environment' },
-              audio: false 
-            });
-          }
+          // 初回カメラ起動
+          await initCamera(currentFacingMode);
 
-          cameraVideo.srcObject = stream;
+          // UI切り替え
+          startScreen.style.display = 'none';
+          shutterContainer.style.display = 'block';
+          flipBtn.style.display = 'flex'; // 切り替えボタン表示
           
-          cameraVideo.onloadedmetadata = () => {
-             startScreen.style.display = 'none';
-             shutterContainer.style.display = 'block';
-             drawCompositeFrame(); 
-          };
+          drawCompositeFrame(); 
 
         } catch (err) {
           console.error(err);
@@ -337,6 +356,7 @@
           log("エラー: " + err.message);
         }
       });
+
 
       // ==========================================
       // 描画ループ (クロスフェード)
@@ -357,10 +377,12 @@
           bufferCanvas.height = ch;
         }
 
+        // バッファクリア
         bufferCtx.globalCompositeOperation = 'source-over';
         bufferCtx.fillStyle = '#000000';
         bufferCtx.fillRect(0, 0, cw, ch);
 
+        // クロスフェード計算
         const duration = currentSnowVideo.duration;
         const currentTime = currentSnowVideo.currentTime;
 
@@ -393,8 +415,15 @@
           }
         }
 
+        // 合成：カメラ＋バッファ
+        // 自撮り（user）の時は左右反転させると鏡みたいで自然やけど、
+        // 録画した時に文字が反転するから、今回はあえてそのまま描画するで。
         ctx.globalCompositeOperation = 'source-over';
+        
+        // もし自撮りの反転を入れたいならここで ctx.scale(-1, 1) とかやるけど
+        // AR合成の位置ズレ防止のため今回は標準のままいくわ
         ctx.drawImage(cameraVideo, 0, 0, cw, ch);
+        
         ctx.globalCompositeOperation = 'screen';
         ctx.drawImage(bufferCanvas, 0, 0);
 
@@ -430,7 +459,48 @@
 
 
       // ==========================================
-      // 撮影・録画機能
+      // プレビュー機能
+      // ==========================================
+      function showPreview(type, url, filename) {
+        if (currentPreviewUrl) URL.revokeObjectURL(currentPreviewUrl);
+        currentPreviewUrl = url;
+
+        previewModal.style.display = 'flex';
+        shutterContainer.style.display = 'none';
+        flipBtn.style.display = 'none'; // プレビュー中は切り替えボタンも隠す
+
+        if (type === 'photo') {
+          previewImg.style.display = 'block';
+          previewVideo.style.display = 'none';
+          previewMsgPhoto.style.display = 'block';
+          btnSaveVideo.style.display = 'none';
+          previewImg.src = url;
+        } else {
+          previewImg.style.display = 'none';
+          previewVideo.style.display = 'block';
+          previewMsgPhoto.style.display = 'none';
+          btnSaveVideo.style.display = 'block';
+          previewVideo.src = url;
+          previewVideo.play().catch(()=>{});
+          btnSaveVideo.onclick = () => downloadFile(url, filename);
+        }
+      }
+
+      function closePreview() {
+        previewModal.style.display = 'none';
+        previewVideo.pause();
+        previewVideo.src = "";
+        previewImg.src = "";
+        
+        shutterContainer.style.display = 'block';
+        flipBtn.style.display = 'flex'; // ボタン復活
+      }
+      
+      btnClose.addEventListener('click', closePreview);
+
+
+      // ==========================================
+      // 撮影機能
       // ==========================================
       function takePhoto() {
         if (shutterLock) return;
@@ -440,7 +510,6 @@
         flash.style.opacity = 1;
         setTimeout(() => flash.style.opacity = 0, 200);
 
-        // ★ 変更点：ダウンロードせずにプレビューを表示
         const dataURL = canvas.toDataURL('image/png');
         showPreview('photo', dataURL);
 
@@ -454,21 +523,14 @@
         recordingStartTime = Date.now();
 
         const stream = canvas.captureStream(30);
-        
-        const mimeTypes = [
-          'video/mp4;codecs=avc1',
-          'video/mp4',
-          'video/webm;codecs=h264',
-          'video/webm'
-        ];
-        selectedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
+        const mimeTypes = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=h264', 'video/webm'];
+        const selectedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
 
         try {
           const options = selectedMimeType ? { mimeType: selectedMimeType } : undefined;
           mediaRecorder = new MediaRecorder(stream, options);
         } catch (e) {
           mediaRecorder = new MediaRecorder(stream);
-          selectedMimeType = 'video/webm';
         }
 
         mediaRecorder.ondataavailable = (event) => {
@@ -479,10 +541,7 @@
           const blob = new Blob(recordedChunks, { type: selectedMimeType || 'video/webm' });
           const url = URL.createObjectURL(blob);
           let ext = (selectedMimeType && selectedMimeType.includes('mp4')) ? 'mp4' : 'webm';
-          
-          // ★ 変更点：ダウンロードせずにプレビューを表示
           showPreview('video', url, `snow_video_${Date.now()}.${ext}`);
-          
           recordedChunks = [];
         };
 
