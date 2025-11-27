@@ -1,8 +1,8 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (MP4 Ver)</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>Snow AR Camera (Fixed)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
 
     <style>
       /* --- 基本設定 --- */
@@ -10,14 +10,17 @@
         margin: 0; padding: 0; width: 100%; height: 100%;
         overflow: hidden; background-color: black;
         font-family: sans-serif;
+        /* スマホでのスクロールバウンスなどを防ぐ */
+        overscroll-behavior: none;
       }
 
       /* 動画表示エリア（見た目用） */
       .responsive-video {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        object-fit: cover;
+        object-fit: cover; /* ここで見た目のクロップはできている */
       }
       #camera-feed { z-index: 1; }
+      /* 見た目上もスクリーン合成を適用 */
       #snow-layer { z-index: 2; mix-blend-mode: screen; pointer-events: none; }
 
       /* --- UIパーツ --- */
@@ -29,7 +32,6 @@
         width: 80px; height: 80px;
         z-index: 100;
         cursor: pointer;
-        /* タップ時のハイライト無効化 */
         -webkit-tap-highlight-color: transparent; 
         user-select: none;
       }
@@ -38,11 +40,11 @@
       .progress-ring {
         position: absolute; top: 0; left: 0;
         width: 80px; height: 80px;
-        transform: rotate(-90deg); /* 12時の位置からスタート */
+        transform: rotate(-90deg);
       }
       .progress-ring__circle {
-        transition: stroke-dashoffset 0.1s linear; /* 滑らかに動かす */
-        stroke: #ff3b30; /* 録画中の赤色 */
+        transition: stroke-dashoffset 0.1s linear;
+        stroke: #ff3b30;
         stroke-width: 4;
         fill: transparent;
       }
@@ -58,9 +60,9 @@
       
       /* 録画中のボタン変形 */
       #shutter-container.recording #shutter-btn {
-        width: 30px; height: 30px; /* 小さくなる */
+        width: 30px; height: 30px;
         top: 25px; left: 25px;
-        border-radius: 4px; /* 四角くなる */
+        border-radius: 4px;
         background-color: #ff3b30;
       }
 
@@ -71,7 +73,7 @@
         transition: opacity 0.2s;
       }
       
-      /* 処理用の隠しキャンバス（画面には出さない） */
+      /* 処理用の隠しキャンバス */
       #work-canvas { display: none; }
     </style>
   </head>
@@ -79,7 +81,7 @@
   <body>
 
     <video id="camera-feed" class="responsive-video" autoplay muted playsinline></video>
-    <video id="snow-layer" class="responsive-video" src="snow.mp4" loop muted playsinline webkit-playsinline></video>
+    <video id="snow-layer" class="responsive-video" src="snow.mp4" loop muted playsinline webkit-playsinline crossorigin="anonymous"></video>
 
     <div id="shutter-container">
       <svg class="progress-ring">
@@ -101,11 +103,9 @@
       const shutterContainer = document.getElementById('shutter-container');
       const progressCircle = document.querySelector('.progress-ring__circle');
       
-      // ゲージの円周の長さ（計算用）
       const radius = progressCircle.r.baseVal.value;
       const circumference = radius * 2 * Math.PI;
       
-      // 初期設定：ゲージを隠す（offsetを最大にする）
       progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
       progressCircle.style.strokeDashoffset = circumference;
 
@@ -114,34 +114,33 @@
       let isRecording = false;
       let recordingStartTime;
       let animationFrameId;
-      let selectedMimeType = ''; // 決定したMIMEタイプを保持
+      let selectedMimeType = '';
       
-      // 長押し判定用タイマー
       let pressTimer;
       let isLongPress = false;
-      const LONG_PRESS_DURATION = 500; // 0.5秒長押しで動画モード
+      const LONG_PRESS_DURATION = 500;
 
       // ==========================================
       // 1. カメラと動画の準備
       // ==========================================
       async function initApp() {
         try {
-          // ★変更点：解像度を1280x720に指定
           const stream = await navigator.mediaDevices.getUserMedia({
             video: { 
               facingMode: 'environment', 
-              width: { ideal: 1280 },  // 幅1280を優先
+              width: { ideal: 1280 },
               height: { ideal: 720 } 
             },
             audio: false 
           });
           cameraVideo.srcObject = stream;
           
-          // 雪動画の再生
-          snowVideo.play().catch(() => {
-            // 自動再生ブロック時はタッチで開始
-            document.body.addEventListener('touchstart', () => snowVideo.play(), {once:true});
-          });
+          // 動画がロードされたら再生開始
+          snowVideo.oncanplay = () => {
+            snowVideo.play().catch(() => {
+              document.body.addEventListener('touchstart', () => snowVideo.play(), {once:true});
+            });
+          };
 
         } catch (err) {
           alert("カメラが起動できへんかったわ。権限を確認してな！");
@@ -150,22 +149,59 @@
       }
 
       // ==========================================
-      // 2. 合成処理（Canvasに描画）
+      // 2. 合成処理（Canvasに描画）★ここが修正の肝や！★
       // ==========================================
       function drawCompositeFrame() {
         // キャンバスサイズをカメラ映像に合わせる
-        if (canvas.width !== cameraVideo.videoWidth) {
-          canvas.width = cameraVideo.videoWidth;
-          canvas.height = cameraVideo.videoHeight;
+        const cw = cameraVideo.videoWidth;
+        const ch = cameraVideo.videoHeight;
+        if (canvas.width !== cw || canvas.height !== ch) {
+          canvas.width = cw;
+          canvas.height = ch;
         }
 
-        // 1. カメラを描く
+        // 1. カメラを描く（通常モード）
         ctx.globalCompositeOperation = 'source-over';
-        ctx.drawImage(cameraVideo, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(cameraVideo, 0, 0, cw, ch);
 
         // 2. 雪を「スクリーン合成」で重ねる
+        // これで黒が抜けるはずや
         ctx.globalCompositeOperation = 'screen';
-        ctx.drawImage(snowVideo, 0, 0, canvas.width, canvas.height);
+
+        // --- ここからクロップ計算 ---
+        const vw = snowVideo.videoWidth;
+        const vh = snowVideo.videoHeight;
+
+        // 動画の準備ができてないときはスキップ
+        if (vw === 0 || vh === 0) {
+           if (isRecording) animationFrameId = requestAnimationFrame(drawCompositeFrame);
+           return;
+        }
+
+        // アスペクト比を比較
+        const videoAspect = vw / vh;
+        const canvasAspect = cw / ch;
+
+        let sx, sy, sw, sh; // ソース（動画）側の切り取り範囲
+
+        if (canvasAspect > videoAspect) {
+          // キャンバスの方が横長 → 動画の上下をカットして横幅を合わせる
+          sw = vw;
+          sh = vw / canvasAspect;
+          sx = 0;
+          sy = (vh - sh) / 2; // 中央寄せ
+        } else {
+          // キャンバスの方が縦長（または同じ）→ 動画の左右をカットして縦幅を合わせる
+          sh = vh;
+          sw = vh * canvasAspect;
+          sx = (vw - sw) / 2; // 中央寄せ
+          sy = 0;
+        }
+
+        // 計算した範囲で描画！
+        // drawImage(元画像, 切り取り開始X, Y, 切り取り幅, 高さ, 描画先X, Y, 描画先幅, 高さ)
+        ctx.drawImage(snowVideo, sx, sy, sw, sh, 0, 0, cw, ch);
+        // --- クロップ計算ここまで ---
 
         // 動画撮影中なら次のフレームも予約
         if (isRecording) {
@@ -177,14 +213,12 @@
       // 3. 静止画撮影
       // ==========================================
       function takePhoto() {
-        drawCompositeFrame(); // 現在のフレームを合成
+        drawCompositeFrame();
         
-        // フラッシュ演出
         const flash = document.getElementById('flash');
         flash.style.opacity = 1;
         setTimeout(() => flash.style.opacity = 0, 200);
 
-        // 画像保存
         const dataURL = canvas.toDataURL('image/png');
         downloadFile(dataURL, `snow_photo_${Date.now()}.png`);
       }
@@ -198,36 +232,26 @@
         shutterContainer.classList.add('recording');
         recordingStartTime = Date.now();
 
-        // 録画ループ開始
         drawCompositeFrame();
 
-        // キャンバスの内容をストリーム化（30fps）
         const stream = canvas.captureStream(30);
         
-        // ★変更点：MP4を最優先にするロジック
         const mimeTypes = [
-          'video/mp4;codecs=avc1', // H.264 (一番汎用性が高いMP4)
-          'video/mp4',             // 通常のMP4
-          'video/webm;codecs=h264',// ChromeでMP4互換性が高いWebM
-          'video/webm'             // 最後の手段
+          'video/mp4;codecs=avc1',
+          'video/mp4',
+          'video/webm;codecs=h264',
+          'video/webm'
         ];
 
-        // ブラウザが対応している最初の形式を選ぶ
-        selectedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
-
-        if (!selectedMimeType) {
-          console.warn("対応形式が見つからへんから、デフォルトでいくで");
-          selectedMimeType = ''; // 空にしておくとブラウザのデフォルトになる
-        }
+        selectedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
 
         try {
-          // 指定したMimeTypeでレコーダー作成
           const options = selectedMimeType ? { mimeType: selectedMimeType } : undefined;
           mediaRecorder = new MediaRecorder(stream, options);
         } catch (e) {
-          console.error("指定形式での録画に失敗したからデフォルトに戻すわ", e);
+          console.error("録画設定エラー:", e);
           mediaRecorder = new MediaRecorder(stream);
-          selectedMimeType = 'video/webm'; // デフォルトは大体WebMやと仮定
+          selectedMimeType = 'video/webm';
         }
 
         mediaRecorder.ondataavailable = (event) => {
@@ -235,23 +259,20 @@
         };
 
         mediaRecorder.onstop = () => {
-          // 録画停止時の保存処理
           const blob = new Blob(recordedChunks, { type: selectedMimeType || 'video/webm' });
           const url = URL.createObjectURL(blob);
           
-          // 拡張子を決める（MP4が含まれてたらmp4、それ以外はwebm）
           let ext = 'webm';
           if (selectedMimeType && selectedMimeType.includes('mp4')) {
             ext = 'mp4';
-          } 
-          // H.264のWebMなら無理やりmp4にする手もあるけど、安全策で拡張子判定
+          }
           
           downloadFile(url, `snow_video_${Date.now()}.${ext}`);
           recordedChunks = [];
         };
 
         mediaRecorder.start();
-        updateGauge(); // ゲージアニメーション開始
+        updateGauge();
       }
 
       function stopRecording() {
@@ -263,15 +284,13 @@
           mediaRecorder.stop();
         }
         
-        // ゲージリセット
         progressCircle.style.strokeDashoffset = circumference;
       }
 
-      // ゲージのアニメーション（最大10秒）
       function updateGauge() {
         if (!isRecording) return;
         
-        const MAX_RECORD_TIME = 10000; // 10秒
+        const MAX_RECORD_TIME = 10000;
         const elapsed = Date.now() - recordingStartTime;
         const progress = Math.min(elapsed / MAX_RECORD_TIME, 1);
         
@@ -281,7 +300,7 @@
         if (progress < 1) {
           requestAnimationFrame(updateGauge);
         } else {
-          stopRecording(); // 10秒経ったら強制終了
+          stopRecording();
         }
       }
 
@@ -310,14 +329,13 @@
       };
 
       shutterContainer.addEventListener('mousedown', startPress);
-      shutterContainer.addEventListener('touchstart', startPress);
+      shutterContainer.addEventListener('touchstart', startPress, {passive: false});
       
       shutterContainer.addEventListener('mouseup', endPress);
       shutterContainer.addEventListener('mouseleave', endPress);
-      shutterContainer.addEventListener('touchend', endPress);
+      shutterContainer.addEventListener('touchend', endPress, {passive: false});
 
 
-      // ファイルダウンロード用ヘルパー
       function downloadFile(url, filename) {
         const a = document.createElement('a');
         a.href = url;
