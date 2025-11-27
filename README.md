@@ -1,7 +1,8 @@
+<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Zero Lag)</title>
+    <title>Snow AR Camera (Instant Play)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
     <style>
       h1:first-of-type { display: none !important; }
@@ -36,7 +37,6 @@
         mix-blend-mode: screen; 
         pointer-events: none;
         opacity: 0; 
-        /* フェードをより自然に */
         transition: opacity 0.5s linear;
         will-change: opacity;
       }
@@ -47,15 +47,15 @@
         pointer-events: none; opacity: 0; z-index: -1;
       }
 
-      /* --- UIパーツ --- */
+      /* スタート画面（ただの目隠し） */
       #start-screen {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background-color: rgba(0, 0, 0, 0.8); /* 少し濃くして裏のアラを隠す */
+        background-color: rgba(0, 0, 0, 0.85); 
         z-index: 3000;
         display: flex; flex-direction: column;
         justify-content: space-between; align-items: center;
         padding: 40px 20px; box-sizing: border-box;
-        transition: opacity 0.5s ease;
+        transition: opacity 0.3s ease;
       }
 
       #howto-container {
@@ -86,23 +86,6 @@
       }
       #start-btn.ready:active { transform: scale(0.95); }
 
-      /* UIボタン */
-      .icon-btn {
-        position: fixed; top: 20px; z-index: 500;
-        width: 44px; height: 44px;
-        background: rgba(0, 0, 0, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.5);
-        border-radius: 50%; color: white; cursor: pointer;
-        display: flex; justify-content: center; align-items: center;
-        backdrop-filter: blur(4px); -webkit-tap-highlight-color: transparent; 
-        transition: background 0.2s;
-        display: none;
-      }
-      .icon-btn:active { background: rgba(255, 255, 255, 0.3); }
-      .icon-btn svg { width: 24px; height: 24px; fill: white; }
-      #reload-btn { right: 20px; }
-      #flip-btn { left: 20px; }
-
       #error-overlay {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background-color: rgba(0,0,0,0.8); z-index: 4000;
@@ -129,6 +112,22 @@
       .btn { padding: 12px 30px; border-radius: 30px; border: none; font-size: 16px; font-weight: bold; cursor: pointer; }
       .btn-save { background-color: white; color: black; }
       .btn-close { background-color: #333; color: white; border: 1px solid #555; }
+
+      .icon-btn {
+        position: fixed; top: 20px; z-index: 500;
+        width: 44px; height: 44px;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        border-radius: 50%; color: white; cursor: pointer;
+        display: flex; justify-content: center; align-items: center;
+        backdrop-filter: blur(4px); -webkit-tap-highlight-color: transparent; 
+        transition: background 0.2s;
+        display: none;
+      }
+      .icon-btn:active { background: rgba(255, 255, 255, 0.3); }
+      .icon-btn svg { width: 24px; height: 24px; fill: white; }
+      #reload-btn { right: 20px; }
+      #flip-btn { left: 20px; }
 
       #shutter-container {
         position: fixed; bottom: 30px; left: 50%;
@@ -195,8 +194,8 @@
 
     <div id="view-container">
       <video id="camera-feed" autoplay muted playsinline></video>
-      <video id="snow-1" class="snow-layer" muted playsinline webkit-playsinline></video>
-      <video id="snow-2" class="snow-layer" muted playsinline webkit-playsinline></video>
+      <video id="snow-1" class="snow-layer" autoplay muted playsinline webkit-playsinline></video>
+      <video id="snow-2" class="snow-layer" autoplay muted playsinline webkit-playsinline></video>
     </div>
 
     <canvas id="work-canvas"></canvas>
@@ -280,14 +279,14 @@
           snowV1.src = videoBlobUrl;
           snowV2.src = videoBlobUrl;
           
-          // ★修正ポイント: canplaythrough で「止まらず再生できる」まで待つ
           await Promise.all([
-            new Promise(r => snowV1.addEventListener('canplaythrough', r, { once: true })),
-            new Promise(r => snowV2.addEventListener('canplaythrough', r, { once: true }))
+            new Promise(r => snowV1.onloadeddata = r),
+            new Promise(r => snowV2.onloadeddata = r)
           ]);
           
           snowV1.loop = false;
           snowV2.loop = false;
+          
           enableStart();
 
         } catch (err) {
@@ -303,14 +302,24 @@
         startBtn.textContent = "START";
         startBtn.disabled = false;
         startBtn.classList.add('ready');
-        // V1を表示準備（まだ見えない）
+
+        // ★ここで即・再生開始！
+        // START画面の裏で雪を降らせておく
         snowV1.style.opacity = 1; 
         snowV2.style.opacity = 0;
+        
+        snowV1.play().catch(e => {
+            console.log("Autoplay blocked (expected on some devices):", e);
+            // ここでブロックされても、STARTボタンクリック時に再トライするからOK
+        });
+        
+        // 監視ループも即開始
+        monitorSnowVideo();
       }
 
       async function initApp() {
         loadAssets();
-        setTimeout(enableStart, 5000); // 保険
+        setTimeout(enableStart, 4000); // タイムアウト保険
         try {
           await initCamera(currentFacingMode);
         } catch (err) {
@@ -320,37 +329,22 @@
 
       window.onload = initApp;
 
-      // ★ここがゼロ・ラグの極意！
       startBtn.addEventListener('click', () => {
         if (startBtn.disabled) return;
-
-        // 1. まず動画を再生させる
-        const p1 = snowV1.play().catch(e => console.log(e));
-        // next側は準備だけ
-        const p2 = snowV2.play().then(() => snowV2.pause()).catch(() => {});
-
-        // 2. 「実際に再生が始まったら」画面を消す
-        // これで「消えたのに動いてない」を防ぐ
-        function onPlayStart() {
-            startScreen.style.opacity = '0';
-            setTimeout(() => { startScreen.style.display = 'none'; }, 500);
-            
-            shutterContainer.style.display = 'block';
-            flipBtn.style.display = 'flex';
-            reloadBtn.style.display = 'flex';
-            
-            // 監視開始
-            monitorSnowVideo();
+        
+        // ★ダメ押し再生
+        // 万が一、裏での自動再生がブロックされていた場合、このクリックで確実に動かす
+        if (currentSnowVideo.paused) {
+             currentSnowVideo.play().catch(e => console.log(e));
         }
-
-        // もし既に動いてたら即実行、まだならイベント待機
-        if (!snowV1.paused && !snowV1.ended && snowV1.readyState > 2) {
-            onPlayStart();
-        } else {
-            snowV1.addEventListener('playing', onPlayStart, { once: true });
-            // 万が一 playing が発火しない場合の保険 (1秒後強制)
-            setTimeout(onPlayStart, 1000);
-        }
+        
+        // 即座に画面を消す（既に裏で動いている前提なので、待ち時間ゼロ）
+        startScreen.style.opacity = '0';
+        setTimeout(() => { startScreen.style.display = 'none'; }, 300);
+        
+        shutterContainer.style.display = 'block';
+        flipBtn.style.display = 'flex';
+        reloadBtn.style.display = 'flex';
       });
 
       async function initCamera(facingMode) {
@@ -359,7 +353,6 @@
         }
         let stream = null;
         try {
-          // HD画質
           stream = await navigator.mediaDevices.getUserMedia({
             video: { 
               facingMode: facingMode,
@@ -389,8 +382,9 @@
         const duration = currentSnowVideo.duration;
         const currentTime = currentSnowVideo.currentTime;
 
-        // 止まってたら起こす
+        // 再生が止まってたら起こす（スタート画面の裏でも動かすため）
         if(currentSnowVideo.paused && duration > 0 && !currentSnowVideo.ended) {
+            // 自動再生ポリシーに引っかかってない限り再生を試みる
             currentSnowVideo.play().catch(()=>{});
         }
 
