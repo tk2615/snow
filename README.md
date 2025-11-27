@@ -164,7 +164,7 @@
     <div id="preview-modal">
       <img id="preview-img">
       <video id="preview-video" autoplay loop playsinline muted></video>
-      <p id="preview-msg-photo" class="preview-text">画像長押しで保存してください</p>
+      <p id="preview-msg-photo" class="preview-text">＊画像を長押しで保存してください</p>
       <div class="preview-buttons">
         <button id="btn-save-video" class="btn btn-save" style="display:none;">Download</button>
         <button id="btn-close" class="btn btn-close">Back</button>
