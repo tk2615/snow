@@ -1,8 +1,7 @@
-<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera</title>
+    <title>Snow AR Camera (MP4 Ver)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
 
     <style>
@@ -115,6 +114,7 @@
       let isRecording = false;
       let recordingStartTime;
       let animationFrameId;
+      let selectedMimeType = ''; // 決定したMIMEタイプを保持
       
       // 長押し判定用タイマー
       let pressTimer;
@@ -126,9 +126,14 @@
       // ==========================================
       async function initApp() {
         try {
+          // ★変更点：解像度を1280x720に指定
           const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: {ideal: 1280}, height: {ideal: 720} },
-            audio: false // 今回は音なし（マイク許可が面倒なため）
+            video: { 
+              facingMode: 'environment', 
+              width: { ideal: 1280 },  // 幅1280を優先
+              height: { ideal: 720 } 
+            },
+            audio: false 
           });
           cameraVideo.srcObject = stream;
           
@@ -140,6 +145,7 @@
 
         } catch (err) {
           alert("カメラが起動できへんかったわ。権限を確認してな！");
+          console.error(err);
         }
       }
 
@@ -157,7 +163,7 @@
         ctx.globalCompositeOperation = 'source-over';
         ctx.drawImage(cameraVideo, 0, 0, canvas.width, canvas.height);
 
-        // 2. 雪を「スクリーン合成」で重ねる（CSSと同じ見た目にする）
+        // 2. 雪を「スクリーン合成」で重ねる
         ctx.globalCompositeOperation = 'screen';
         ctx.drawImage(snowVideo, 0, 0, canvas.width, canvas.height);
 
@@ -188,7 +194,7 @@
       // ==========================================
       function startRecording() {
         isRecording = true;
-        isLongPress = true; // 動画モード確定
+        isLongPress = true;
         shutterContainer.classList.add('recording');
         recordingStartTime = Date.now();
 
@@ -198,17 +204,30 @@
         // キャンバスの内容をストリーム化（30fps）
         const stream = canvas.captureStream(30);
         
-        // ブラウザごとの対応フォーマットを探す
-        let options = { mimeType: 'video/webm' };
-        if (!MediaRecorder.isTypeSupported('video/webm')) {
-          options = { mimeType: 'video/mp4' }; // Safari用
+        // ★変更点：MP4を最優先にするロジック
+        const mimeTypes = [
+          'video/mp4;codecs=avc1', // H.264 (一番汎用性が高いMP4)
+          'video/mp4',             // 通常のMP4
+          'video/webm;codecs=h264',// ChromeでMP4互換性が高いWebM
+          'video/webm'             // 最後の手段
+        ];
+
+        // ブラウザが対応している最初の形式を選ぶ
+        selectedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
+
+        if (!selectedMimeType) {
+          console.warn("対応形式が見つからへんから、デフォルトでいくで");
+          selectedMimeType = ''; // 空にしておくとブラウザのデフォルトになる
         }
 
         try {
+          // 指定したMimeTypeでレコーダー作成
+          const options = selectedMimeType ? { mimeType: selectedMimeType } : undefined;
           mediaRecorder = new MediaRecorder(stream, options);
         } catch (e) {
-          // ダメならデフォルトで
+          console.error("指定形式での録画に失敗したからデフォルトに戻すわ", e);
           mediaRecorder = new MediaRecorder(stream);
+          selectedMimeType = 'video/webm'; // デフォルトは大体WebMやと仮定
         }
 
         mediaRecorder.ondataavailable = (event) => {
@@ -216,9 +235,18 @@
         };
 
         mediaRecorder.onstop = () => {
-          const blob = new Blob(recordedChunks, { type: 'video/webm' });
+          // 録画停止時の保存処理
+          const blob = new Blob(recordedChunks, { type: selectedMimeType || 'video/webm' });
           const url = URL.createObjectURL(blob);
-          downloadFile(url, `snow_video_${Date.now()}.webm`); // iOSはmp4拡張子の方が良い場合もあるけど一旦webmで
+          
+          // 拡張子を決める（MP4が含まれてたらmp4、それ以外はwebm）
+          let ext = 'webm';
+          if (selectedMimeType && selectedMimeType.includes('mp4')) {
+            ext = 'mp4';
+          } 
+          // H.264のWebMなら無理やりmp4にする手もあるけど、安全策で拡張子判定
+          
+          downloadFile(url, `snow_video_${Date.now()}.${ext}`);
           recordedChunks = [];
         };
 
@@ -239,7 +267,7 @@
         progressCircle.style.strokeDashoffset = circumference;
       }
 
-      // ゲージのアニメーション（最大10秒で一周する設定）
+      // ゲージのアニメーション（最大10秒）
       function updateGauge() {
         if (!isRecording) return;
         
@@ -247,7 +275,6 @@
         const elapsed = Date.now() - recordingStartTime;
         const progress = Math.min(elapsed / MAX_RECORD_TIME, 1);
         
-        // ゲージを減らしていく
         const offset = circumference - (progress * circumference);
         progressCircle.style.strokeDashoffset = offset;
 
@@ -259,35 +286,29 @@
       }
 
       // ==========================================
-      // 5. 操作イベント管理（タップ vs 長押し）
+      // 5. 操作イベント管理
       // ==========================================
       
-      // マウス/タッチ開始
       const startPress = (e) => {
-        e.preventDefault(); // スクロール等防止
+        e.preventDefault();
         isLongPress = false;
         
-        // 長押しタイマーセット
         pressTimer = setTimeout(() => {
-          startRecording(); // 長押し成立→動画開始
+          startRecording(); 
         }, LONG_PRESS_DURATION);
       };
 
-      // マウス/タッチ終了
       const endPress = (e) => {
         e.preventDefault();
-        clearTimeout(pressTimer); // タイマー解除
+        clearTimeout(pressTimer);
 
         if (isRecording) {
-          // 動画撮影中なら停止
           stopRecording();
         } else {
-          // 長押しじゃなかった（ただのタップ）なら静止画撮影
           takePhoto();
         }
       };
 
-      // イベントリスナー登録
       shutterContainer.addEventListener('mousedown', startPress);
       shutterContainer.addEventListener('touchstart', startPress);
       
@@ -306,7 +327,6 @@
         document.body.removeChild(a);
       }
 
-      // アプリ開始
       window.onload = initApp;
 
     </script>
