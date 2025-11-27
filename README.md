@@ -1,7 +1,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Fullscreen Wide)</title>
+    <title>Snow AR Camera (High Res Native)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
 
     <style>
@@ -24,9 +24,14 @@
         position: fixed;
         top: 50%; left: 50%;
         transform: translate(-50%, -50%);
-        /* 画面を埋め尽くす（アスペクト比維持はJSで制御） */
-        min-width: 100%; min-height: 100%;
-        width: auto; height: auto;
+        
+        /* ★重要：見た目は画面いっぱいに広げる */
+        width: 100%;
+        height: 100%;
+        
+        /* アスペクト比が合わない部分は切り落として全画面埋める */
+        object-fit: cover; 
+        
         z-index: 1;
         display: block;
       }
@@ -246,10 +251,10 @@
         try {
           log(`カメラ起動中 (${facingMode === 'user' ? '自撮り' : '外向き'})...`);
           
-          // 幅4096などの巨大な値を指定して、ハードウェアの最大解像度を引き出す
           stream = await navigator.mediaDevices.getUserMedia({
             video: { 
               facingMode: facingMode,
+              // ★超高画質要求 (4K相当)
               width: { ideal: 4096 }, 
               height: { ideal: 2160 } 
             },
@@ -313,9 +318,10 @@
       });
 
       // ==========================================
-      // 描画ループ (画面いっぱい・クロップあり)
+      // 描画ループ (★ここが修正の肝★)
       // ==========================================
       function drawCompositeFrame() {
+        // カメラの生解像度 (例: 1920x1080)
         const vw = cameraVideo.videoWidth;
         const vh = cameraVideo.videoHeight;
 
@@ -324,44 +330,21 @@
            return;
         }
 
-        // 画面サイズ取得
-        const screenW = window.innerWidth;
-        const screenH = window.innerHeight;
-
-        // Canvasサイズは画面サイズに追従
-        if (canvas.width !== screenW || canvas.height !== screenH) {
-          canvas.width = screenW;
-          canvas.height = screenH;
-          bufferCanvas.width = screenW;
-          bufferCanvas.height = screenH;
+        // Canvasのサイズは「カメラの生解像度」に合わせる！
+        // これで保存される画像や動画は超高画質になる
+        if (canvas.width !== vw || canvas.height !== vh) {
+          canvas.width = vw;
+          canvas.height = vh;
+          bufferCanvas.width = vw;
+          bufferCanvas.height = vh;
         }
 
         // バッファクリア
         bufferCtx.globalCompositeOperation = 'source-over';
         bufferCtx.fillStyle = '#000000';
-        bufferCtx.fillRect(0, 0, screenW, screenH);
+        bufferCtx.fillRect(0, 0, vw, vh);
 
-        // ★計算ロジック：画面を埋め尽くす (Cover)
-        const videoAspect = vw / vh;
-        const screenAspect = screenW / screenH;
-        
-        let drawX, drawY, drawW, drawH;
-
-        if (screenAspect > videoAspect) {
-          // 画面の方が横長 -> 幅を合わせて、高さははみ出す（上下カット）
-          drawW = screenW;
-          drawH = screenW / videoAspect;
-          drawX = 0;
-          drawY = (screenH - drawH) / 2;
-        } else {
-          // 画面の方が縦長 -> 高さを合わせて、幅ははみ出す（左右カット）
-          drawH = screenH;
-          drawW = screenH * videoAspect;
-          drawX = (screenW - drawW) / 2;
-          drawY = 0;
-        }
-
-        // --- 雪動画 (クロスフェード) ---
+        // 雪動画の処理 (Canvas全体にカバーさせる)
         const duration = currentSnowVideo.duration;
         const currentTime = currentSnowVideo.currentTime;
 
@@ -375,12 +358,10 @@
             }
             const alphaCurrent = Math.max(0, timeLeft / FADE_DURATION);
             const alphaNext = 1.0 - alphaCurrent;
-            
-            // 雪動画もカメラと同じ座標(drawX,Y,W,H)に合わせて描画
-            drawSnowToBuffer(currentSnowVideo, drawX, drawY, drawW, drawH, alphaCurrent);
-            drawSnowToBuffer(nextSnowVideo, drawX, drawY, drawW, drawH, alphaNext);
+            drawSnowToBuffer(currentSnowVideo, vw, vh, alphaCurrent);
+            drawSnowToBuffer(nextSnowVideo, vw, vh, alphaNext);
           } else {
-            drawSnowToBuffer(currentSnowVideo, drawX, drawY, drawW, drawH, 1.0);
+            drawSnowToBuffer(currentSnowVideo, vw, vh, 1.0);
             if (!nextSnowVideo.paused) {
               nextSnowVideo.pause();
               nextSnowVideo.currentTime = 0;
@@ -397,47 +378,44 @@
         }
 
         // --- メイン合成 ---
-        ctx.globalCompositeOperation = 'source-over';
-        // 画面を黒でリセット
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, screenW, screenH);
         
-        // カメラ描画（拡大・クロップ）
-        ctx.drawImage(cameraVideo, drawX, drawY, drawW, drawH);
+        // 1. カメラ描画 (Canvasサイズ = カメラサイズなので等倍描画)
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(cameraVideo, 0, 0, vw, vh);
 
-        // 雪合成
+        // 2. 雪合成
         ctx.globalCompositeOperation = 'screen';
         ctx.drawImage(bufferCanvas, 0, 0);
 
         requestAnimationFrame(drawCompositeFrame);
       }
 
-      function drawSnowToBuffer(video, dx, dy, dw, dh, alpha) {
+      // 雪動画をCanvasいっぱい（カメラサイズいっぱい）に描画
+      function drawSnowToBuffer(video, cw, ch, alpha) {
         if (alpha <= 0.01) return;
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
-        if (vw === 0 || vh === 0) return;
+        const videoW = video.videoWidth;
+        const videoH = video.videoHeight;
+        if (videoW === 0 || videoH === 0) return;
 
-        // 動画アスペクト比計算 (object-fit: cover for video inside draw area)
-        // ここは「描画エリア(dw,dh)」に対して「雪動画(vw,vh)」をどう合わせるか
-        const drawAspect = dw / dh;
-        const videoAspect = vw / vh;
+        // Cover計算
+        const canvasAspect = cw / ch;
+        const videoAspect = videoW / videoH;
         let sx, sy, sw, sh;
 
-        if (drawAspect > videoAspect) {
-          sw = vw;
-          sh = vw / drawAspect;
+        if (canvasAspect > videoAspect) {
+          sw = videoW;
+          sh = videoW / canvasAspect;
           sx = 0;
-          sy = (vh - sh) / 2;
+          sy = (videoH - sh) / 2;
         } else {
-          sh = vh;
-          sw = vh * drawAspect;
-          sx = (vw - sw) / 2;
+          sh = videoH;
+          sw = videoH * canvasAspect;
+          sx = (videoW - sw) / 2;
           sy = 0;
         }
 
         bufferCtx.globalAlpha = alpha;
-        bufferCtx.drawImage(video, sx, sy, sw, sh, dx, dy, dw, dh);
+        bufferCtx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
         bufferCtx.globalAlpha = 1.0;
       }
 
