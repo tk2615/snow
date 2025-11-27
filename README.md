@@ -1,7 +1,8 @@
+<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Black BG Snow AR</title>
+    <title>Snow AR Loop</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
 
@@ -9,21 +10,25 @@
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
 
     <script>
-      // 【重要】スマホで動画を再生させるためのスイッチ
-      // 画面をタップすると動画がスタートする仕掛けや
-      AFRAME.registerComponent('click-to-play', {
+      // 自動再生を強力にサポートするスクリプト
+      AFRAME.registerComponent('auto-play-video', {
         init: function () {
           var video = document.querySelector('#snow-video');
-          var startMsg = document.querySelector('#start-message');
-          
-          var playVideo = function() {
-            video.play();
-            // 再生したら案内メッセージを消す
-            if(startMsg) startMsg.style.display = 'none';
+
+          var attemptPlay = function() {
+            video.play().catch(function(error) {
+              console.log("自動再生ブロックされたわ。タップ待ちに切り替えるで。");
+              // 万が一ブロックされたら、画面のどこを触っても再生するように仕込む
+              document.body.addEventListener('click', function() { video.play(); }, { once: true });
+              document.body.addEventListener('touchstart', function() { video.play(); }, { once: true });
+            });
           };
 
-          document.body.addEventListener('click', playVideo);
-          document.body.addEventListener('touchstart', playVideo);
+          if (video.readyState > 0) {
+            attemptPlay();
+          } else {
+            video.addEventListener('loadeddata', attemptPlay);
+          }
         }
       });
     </script>
@@ -34,48 +39,32 @@
     <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;" vr-mode-ui="enabled: false">
 
       <a-assets>
-        < 
-          id="snow-" 
-          src="https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sintel.mp4" 
+        <video 
+          id="snow-video" 
+          src="snow.mp4" 
           preload="auto" 
+          autoplay="true"
           loop="true" 
           muted="true"
           playsinline 
           webkit-playsinline
           crossOrigin="anonymous">
-        </>
-        </a-assets>
+        </video>
+      </a-assets>
 
-      <a-entity camera look-controls click-to-play>
+      <a-entity camera look-controls auto-play-video>
         
-        <a- 
-          src="snow.mp4" 
-          position="0 0 -3" 
-          width="4" 
-          height="2.25"
+        <a-video 
+          src="#snow-video" 
+          position="0 0 -4" 
+          width="5" 
+          height="3"
           scale="1.5 1.5 1.5"
-          material="shader: flat; transparent: true; blending: additive; opacity: 0.9;">
-        </a->
+          material="shader: flat; transparent: true; blending: additive; opacity: 1;">
+        </a-video>
 
       </a-entity>
 
     </a-scene>
-
-    <div id="start-message" style="
-      position: fixed; 
-      top: 50%; 
-      left: 50%; 
-      transform: translate(-50%, -50%); 
-      z-index: 10; 
-      color: white; 
-      background: rgba(0,0,0,0.5); 
-      padding: 20px; 
-      border-radius: 10px;
-      text-align: center; 
-      font-family: sans-serif; 
-      pointer-events: none;">
-      画面をタップして<br>雪を降らせるで！
-    </div>
-
   </body>
 </html>
