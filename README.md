@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Background Init)</title>
+    <title>Snow AR Camera (Fast Start)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
     <style>
       h1:first-of-type { display: none !important; }
@@ -47,7 +47,7 @@
         pointer-events: none; opacity: 0; z-index: -1;
       }
 
-      /* スタート画面（元に戻したで！） */
+      /* スタート画面 */
       #start-screen {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background-color: rgba(0, 0, 0, 0.85); 
@@ -82,10 +82,10 @@
       }
       #start-btn:active { transform: scale(0.95); }
       
-      #start-btn.loading {
+      /* STARTボタンが押せない状態のスタイル */
+      #start-btn:disabled {
         background: #999; color: #eee;
-        cursor: wait;
-        transform: scale(0.95);
+        cursor: wait; transform: scale(0.95);
       }
 
       #error-overlay {
@@ -105,7 +105,7 @@
         justify-content: center; align-items: center; color: white;
       }
 
-      /* プレビュー画面(75%) */
+      /* プレビュー画面を75%に縮小 */
       #preview-img, #preview-video {
         max-width: 75%; 
         max-height: 75%;
@@ -171,6 +171,7 @@
   </head>
 
   <body>
+
     <button id="reload-btn" class="icon-btn" onclick="location.reload()">
       <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
     </button>
@@ -182,7 +183,7 @@
       <div id="howto-container">
         <img id="howto-img" src="howto.png" alt="How to use">
       </div>
-      <button id="start-btn">START</button>
+      <button id="start-btn" disabled>LOADING...</button>
     </div>
 
     <div id="error-overlay">
@@ -271,16 +272,8 @@
       const LONG_PRESS_DURATION = 500;
       let currentFacingMode = 'environment';
       let snowLoopId;
-      
-      // ★追加: 裏でカメラが回ったかどうかを管理するフラグ
-      let isCameraReady = false;
 
       function showError(msg) {
-        // 裏での起動失敗ならユーザーには見せない
-        if(startScreen.style.display !== 'none') {
-            console.log("Background init failed (expected on mobile): " + msg);
-            return;
-        }
         errorOverlay.style.display = 'flex';
         errorText.textContent = msg;
         console.error(msg);
@@ -301,17 +294,6 @@
           
           snowV1.loop = false;
           snowV2.loop = false;
-          
-          // ★裏で雪を再生開始
-          snowV1.style.opacity = 1; 
-          snowV2.style.opacity = 0;
-          
-          // ミュートなら自動再生できる可能性が高い
-          Promise.all([
-               snowV1.play().catch(e => console.log("Bg Snow Play error:", e)),
-               snowV2.play().then(() => snowV2.pause()).catch(e => console.log("Bg Snow Play error:", e))
-          ]);
-          monitorSnowVideo();
 
         } catch (err) {
           console.warn("Fallback to src. " + err.message);
@@ -320,55 +302,49 @@
         }
       }
 
-      async function attemptBackgroundInit() {
-        // アセット読み込み（これは確実にやる）
-        loadAssets();
-        
-        // カメラ起動に挑戦（スマホだとブロックされるかも）
+      // ★ここから下を変更したで！
+      async function initApp() {
+        // 1. まずアセット読み込み
+        await loadAssets();
+
+        // 2. ユーザー操作を待たずに裏でカメラと動画を開始する
         try {
             await initCamera(currentFacingMode);
-            // 成功したらフラグを立てる
-            isCameraReady = true;
-            console.log("Background camera init success!");
-        } catch (e) {
-            // 失敗してもエラーは出さない（ボタン押下時に再トライするから）
-            console.log("Background camera init blocked (waiting for click).");
-            isCameraReady = false;
+            
+            // 雪動画の初期化
+            snowV1.style.opacity = 1; 
+            snowV2.style.opacity = 0;
+            
+            // 動画再生開始（ブラウザ設定によってはここでブロックされる可能性があるけどtry-catchしてる）
+            await Promise.all([
+                 snowV1.play().catch(e => console.log("Autoplay blocked:", e)),
+                 snowV2.play().then(() => snowV2.pause()).catch(e => console.log(e))
+            ]);
+
+            // 動画監視ループ開始
+            monitorSnowVideo();
+
+            // 準備ができたらSTARTボタンを押せるようにする
+            startBtn.textContent = "START";
+            startBtn.disabled = false;
+
+        } catch (err) {
+            showError("起動エラー: " + err.message);
+            // エラー時でもリトライできるようにボタンを変える
+            startBtn.textContent = "RETRY";
+            startBtn.onclick = () => location.reload();
+            startBtn.disabled = false;
         }
       }
 
-      // ★ページ読み込み時に裏で準備開始
-      window.onload = attemptBackgroundInit;
+      window.onload = initApp;
 
-      // ★STARTボタンの挙動を変更
-      startBtn.addEventListener('click', async () => {
-        if (startBtn.disabled) return;
-
-        // すでに裏でカメラが回ってたら、ただ画面を消すだけ
-        if (isCameraReady) {
-            closeStartScreen();
-            return;
-        }
-
-        // カメラが回ってなかったら（スマホなど）、ここで正式に起動
-        startBtn.textContent = "LOADING...";
-        startBtn.classList.add('loading');
-        startBtn.disabled = true;
-
-        try {
-           await initCamera(currentFacingMode);
-           
-           // 雪の動画がもし止まってたら再生
-           if(snowV1.paused) snowV1.play().catch(()=>{});
-           
-           closeStartScreen();
-        } catch (err) {
-           errorOverlay.style.display = 'flex';
-           errorText.textContent = "起動エラー: " + err.message;
-           startBtn.textContent = "RETRY";
-           startBtn.classList.remove('loading');
-           startBtn.disabled = false;
-        }
+      // ★STARTボタンは「画面を消すだけ」の役割に変更
+      startBtn.addEventListener('click', () => {
+        closeStartScreen();
+        // もし自動再生がブロックされてた時の保険として、念の為ここでもplay呼んどく
+        if(snowV1.paused && !snowV1.ended) snowV1.play().catch(()=>{});
+        if(cameraVideo.paused) cameraVideo.play().catch(()=>{});
       });
 
       function closeStartScreen() {
@@ -378,11 +354,10 @@
         flipBtn.style.display = 'flex';
         reloadBtn.style.display = 'flex';
       }
+      // ★ここまで変更
 
       async function initCamera(facingMode) {
         if (cameraVideo.srcObject) {
-          // すでにストリームがあってActiveなら何もしない（裏で起動済みの場合）
-          if (cameraVideo.srcObject.active) return;
           cameraVideo.srcObject.getTracks().forEach(track => track.stop());
         }
         let stream = null;
@@ -401,15 +376,8 @@
           } catch(e) { throw e; }
         }
         cameraVideo.srcObject = stream;
-        // play()もしとかんとiPhoneで止まったままになることがある
-        cameraVideo.play().catch(e => console.log("Video play trigger:", e));
-        
         return new Promise((resolve) => {
-            if(cameraVideo.readyState >= 1) {
-                resolve();
-            } else {
-                cameraVideo.onloadedmetadata = () => resolve();
-            }
+            cameraVideo.onloadedmetadata = () => resolve();
         });
       }
 
@@ -417,7 +385,6 @@
         currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
         flipBtn.style.pointerEvents = 'none';
         flipBtn.style.opacity = 0.5;
-        // 反転時は再初期化が必要
         try { await initCamera(currentFacingMode); } catch (err) { console.error(err); } 
         finally { flipBtn.style.pointerEvents = 'auto'; flipBtn.style.opacity = 1; }
       });
