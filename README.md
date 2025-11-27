@@ -1,16 +1,11 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Fast & Stable)</title>
+    <title>Snow AR Camera (Final Fix)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
     <style>
-      /* 最初の見出し（h1）を消す */
-      h1:first-of-type {
-        display: none !important;
-      }
-    </style>
-    <style>
-      /* --- 基本設定 --- */
+      h1:first-of-type { display: none !important; }
+      
       html, body {
         margin: 0; padding: 0; width: 100%; height: 100%;
         overflow: hidden; background-color: #000;
@@ -18,9 +13,10 @@
         overscroll-behavior: none;
       }
 
+      /* ソース動画は非表示やけど、DOMには存在させる */
       .hidden-source {
-        position: absolute; top: 0; left: 0; width: 10px; height: 10px;
-        opacity: 0.01; pointer-events: none; z-index: -99;
+        position: absolute; top: 0; left: 0; width: 1px; height: 1px;
+        opacity: 0.001; pointer-events: none; z-index: -99;
       }
 
       #work-canvas {
@@ -38,10 +34,9 @@
         background: rgba(0, 0, 0, 0.3);
         border: 1px solid rgba(255, 255, 255, 0.5);
         border-radius: 50%; color: white; cursor: pointer;
-        display: flex; justify-content: center; align-items: center;
+        display: none; justify-content: center; align-items: center;
         backdrop-filter: blur(4px); -webkit-tap-highlight-color: transparent; 
         transition: background 0.2s;
-        display: none;
       }
       .icon-btn:active { background: rgba(255, 255, 255, 0.3); }
       .icon-btn svg { width: 24px; height: 24px; fill: white; }
@@ -52,7 +47,7 @@
       /* スタート画面 */
       #start-screen {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background-color: rgba(0, 0, 0, 0.6);
+        background-color: rgba(0, 0, 0, 0.8);
         z-index: 3000;
         display: flex; flex-direction: column;
         justify-content: space-between; align-items: center;
@@ -65,11 +60,9 @@
         justify-content: center; align-items: center;
         overflow: hidden; margin-bottom: 20px;
       }
-
       #howto-img {
         width: 120%; height: 120%;
-        object-fit: contain; background-color: transparent;
-        filter: drop-shadow(0 0 10px rgba(0,0,0,0.5));
+        object-fit: contain; filter: drop-shadow(0 0 10px rgba(0,0,0,0.5));
       }
       
       #start-btn {
@@ -82,10 +75,16 @@
         transition: transform 0.1s; margin-bottom: 40px; 
       }
       #start-btn:active { transform: scale(0.95); }
+      #start-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+      #loading-msg {
+        color: white; margin-bottom: 10px; font-size: 14px;
+        display: none;
+      }
 
       #error-overlay {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background-color: rgba(0,0,0,0.8); z-index: 4000;
+        background-color: rgba(0,0,0,0.9); z-index: 4000;
         display: none; flex-direction: column;
         justify-content: center; align-items: center;
         padding: 20px; color: #ff3b30; text-align: center;
@@ -99,14 +98,11 @@
         display: none; flex-direction: column;
         justify-content: center; align-items: center; color: white;
       }
-      
-      /* ★変更点: プレビューサイズを大きく (65% -> 75%) */
       #preview-img, #preview-video {
         max-width: 90%; max-height: 75%; 
         border-radius: 8px; box-shadow: 0 0 20px rgba(0,0,0,0.5);
         margin-bottom: 20px; object-fit: contain;
       }
-      /* プレビュー動画のクリック無効化（再生バーを出さないため） */
       #preview-video { pointer-events: none; }
 
       .preview-text { font-size: 14px; margin-bottom: 20px; color: #ccc; }
@@ -159,7 +155,8 @@
       <div id="howto-container">
         <img id="howto-img" src="howto.png" alt="How to use">
       </div>
-      <button id="start-btn">START</button>
+      <p id="loading-msg">Camera Initializing...</p>
+      <button id="start-btn" disabled>LOADING...</button>
     </div>
 
     <div id="error-overlay">
@@ -178,9 +175,10 @@
       </div>
     </div>
 
-    <video id="camera-feed" class="hidden-source" autoplay muted playsinline></video>
+    <video id="camera-feed" class="hidden-source" autoplay muted playsinline webkit-playsinline></video>
     
-    <video id="snow-video" class="hidden-source" src="snow.mp4" loop muted playsinline webkit-playsinline preload="auto"></video>
+    <video id="snow-1" class="hidden-source" muted playsinline webkit-playsinline preload="auto"></video>
+    <video id="snow-2" class="hidden-source" muted playsinline webkit-playsinline preload="auto"></video>
 
     <canvas id="work-canvas"></canvas>
 
@@ -195,107 +193,99 @@
         </svg>
       </div>
     </div>
-
     <div id="flash"></div>
 
     <script>
+      // DOM要素取得
       const cameraVideo = document.getElementById('camera-feed');
-      // ★変更点: 1つの動画要素のみ取得
-      const snowVideo = document.getElementById('snow-video');
-      
+      const snowV1 = document.getElementById('snow-1');
+      const snowV2 = document.getElementById('snow-2');
       const canvas = document.getElementById('work-canvas');
       const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
-      
-      // ★軽量化: 合成用バッファは不要になったので削除して直接描画するか、
-      // サイズ調整用として残す。今回はサイズ調整（アスペクト比維持）のために残すが、処理は簡素化する。
-      const bufferCanvas = document.createElement('canvas');
-      const bufferCtx = bufferCanvas.getContext('2d', { alpha: false, desynchronized: true });
 
-      const shutterContainer = document.getElementById('shutter-container');
-      const progressCircle = document.querySelector('.progress-ring__circle');
       const startScreen = document.getElementById('start-screen');
       const startBtn = document.getElementById('start-btn');
+      const loadingMsg = document.getElementById('loading-msg');
+      const shutterContainer = document.getElementById('shutter-container');
       const flipBtn = document.getElementById('flip-btn');
       const reloadBtn = document.getElementById('reload-btn');
 
-      const previewModal = document.getElementById('preview-modal');
-      const previewImg = document.getElementById('preview-img');
-      const previewVideo = document.getElementById('preview-video');
-      const previewMsgPhoto = document.getElementById('preview-msg-photo');
-      const btnSaveVideo = document.getElementById('btn-save-video');
-      const btnClose = document.getElementById('btn-close');
+      // 変数
+      let currentSnowVideo = snowV1;
+      let nextSnowVideo = snowV2;
+      // フェード時間1秒
+      const FADE_DURATION = 1.0; 
+      // 次の動画を再生開始するタイミング（終了の2秒前）
+      const PRELOAD_TIME = 2.0;
 
-      const errorOverlay = document.getElementById('error-overlay');
-      const errorText = document.getElementById('error-text');
-      
-      let currentPreviewUrl = null;
-      
-      const radius = progressCircle.r.baseVal.value;
-      const circumference = radius * 2 * Math.PI;
-      progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
-      progressCircle.style.strokeDashoffset = circumference;
+      let currentFacingMode = 'environment';
+      let cachedWidth = 0;
+      let cachedHeight = 0;
+      let needsResize = true;
+      let snowBlobUrl = null;
 
+      // 録画関連
       let mediaRecorder;
       let recordedChunks = [];
       let isRecording = false;
       let recordingStartTime;
+      const progressCircle = document.querySelector('.progress-ring__circle');
+      const radius = progressCircle.r.baseVal.value;
+      const circumference = radius * 2 * Math.PI;
+      progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
+      progressCircle.style.strokeDashoffset = circumference;
       
+      let isPressing = false;
       let pressTimer;
       let isLongPress = false;
-      let isPressing = false;
-      let shutterLock = false; 
-      const LONG_PRESS_DURATION = 500;
+      let shutterLock = false;
 
-      let currentFacingMode = 'environment';
-
-      let cachedWidth = 0;
-      let cachedHeight = 0;
-      let needsResize = true;
-      let lastFrameTime = 0;
-      const TARGET_FPS = 30; 
-      const FRAME_INTERVAL = 1000 / TARGET_FPS;
-
+      // --- エラー表示 ---
       function showError(msg) {
-        errorOverlay.style.display = 'flex';
-        errorText.textContent = msg;
+        document.getElementById('error-overlay').style.display = 'flex';
+        document.getElementById('error-text').textContent = msg;
         console.error(msg);
       }
 
+      // -------------------------------------------------
+      //  初期化フロー（ここを修正！）
+      // -------------------------------------------------
       async function initApp() {
+        loadingMsg.style.display = 'block';
+        
         try {
-          // ★変更点: 単純に再生するだけ
-          await snowVideo.play().catch(e => console.warn(e));
+          // 1. 動画の読み込み (Blob化)
+          const response = await fetch('snow.mp4');
+          if (!response.ok) throw new Error('snow.mp4 not found');
+          const blob = await response.blob();
+          snowBlobUrl = URL.createObjectURL(blob);
           
-          await initCamera(currentFacingMode);
+          snowV1.src = snowBlobUrl;
+          snowV2.src = snowBlobUrl;
+          snowV1.load();
+          snowV2.load();
+
+          // 2. カメラ初期化（ここではストリーム取得のみ）
+          await initCameraStream(currentFacingMode);
           
-          updateDimensions();
-          drawCompositeFrame(0);
+          // 3. 準備完了したらSTARTボタン有効化
+          startBtn.disabled = false;
+          startBtn.textContent = "START";
+          loadingMsg.style.display = 'none';
 
         } catch (err) {
-          showError("カメラエラー:\n" + err.message);
+          showError(err.message);
         }
       }
 
-      window.onload = initApp;
-      window.addEventListener('resize', () => { needsResize = true; });
-
-      startBtn.addEventListener('click', () => {
-        startScreen.style.opacity = '0';
-        setTimeout(() => { startScreen.style.display = 'none'; }, 500);
-        shutterContainer.style.display = 'block';
-        flipBtn.style.display = 'flex';
-        reloadBtn.style.display = 'flex';
-        // 再生保証
-        if(snowVideo.paused) snowVideo.play().catch(()=>{});
-      });
-
-      async function initCamera(facingMode) {
+      // カメラストリームの取得とサイズ確定待ち
+      async function initCameraStream(facingMode) {
         if (cameraVideo.srcObject) {
           cameraVideo.srcObject.getTracks().forEach(track => track.stop());
         }
-        let stream = null;
+
         try {
-          stream = await navigator.mediaDevices.getUserMedia({
+          const stream = await navigator.mediaDevices.getUserMedia({
             video: { 
               facingMode: facingMode,
               width: { ideal: 1280 }, 
@@ -303,26 +293,68 @@
             },
             audio: false 
           });
+          cameraVideo.srcObject = stream;
+          
+          // ★重要: iPhone等で確実にサイズを取得するための待機
+          return new Promise((resolve) => {
+            const checkSize = () => {
+              if (cameraVideo.videoWidth > 0 && cameraVideo.videoHeight > 0) {
+                needsResize = true;
+                resolve();
+              } else {
+                requestAnimationFrame(checkSize);
+              }
+            };
+            // 裏で再生しようとしてみる（ユーザー操作前なので失敗するかもだがサイズ取得には効く）
+            cameraVideo.play().catch(()=>{});
+            checkSize();
+          });
         } catch (err) {
-          try {
-             stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode }, audio: false });
-          } catch(e) { throw e; }
+          throw new Error("カメラへのアクセスが拒否されました: " + err.message);
         }
-        cameraVideo.srcObject = stream;
-        return new Promise((resolve) => {
-          cameraVideo.onloadedmetadata = () => {
-            needsResize = true;
-            resolve();
-          };
-        });
       }
 
+      window.onload = initApp;
+      window.addEventListener('resize', () => { needsResize = true; });
+
+      // -------------------------------------------------
+      //  STARTボタンクリック（ユーザー操作起点）
+      // -------------------------------------------------
+      startBtn.addEventListener('click', async () => {
+        // ここで確実に再生をキックする
+        try {
+          await cameraVideo.play();
+          await snowV1.play();
+          snowV2.pause();
+          snowV2.currentTime = 0;
+          
+          startScreen.style.opacity = '0';
+          setTimeout(() => { startScreen.style.display = 'none'; }, 500);
+          
+          shutterContainer.style.display = 'block';
+          flipBtn.style.display = 'flex';
+          reloadBtn.style.display = 'flex';
+          
+          updateDimensions();
+          requestAnimationFrame(drawLoop);
+          
+        } catch (e) {
+          showError("再生エラー: " + e.message);
+        }
+      });
+
+      // カメラ反転
       flipBtn.addEventListener('click', async () => {
         currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
-        flipBtn.style.pointerEvents = 'none';
         flipBtn.style.opacity = 0.5;
-        try { await initCamera(currentFacingMode); } catch (err) { console.error(err); } 
-        finally { flipBtn.style.pointerEvents = 'auto'; flipBtn.style.opacity = 1; }
+        try { 
+          await initCameraStream(currentFacingMode); 
+          await cameraVideo.play(); // 反転後も再生
+        } catch (err) { 
+          console.error(err); 
+        } finally { 
+          flipBtn.style.opacity = 1; 
+        }
       });
 
       function updateDimensions() {
@@ -336,21 +368,15 @@
         if (canvas.width !== vw || canvas.height !== vh) {
           canvas.width = vw;
           canvas.height = vh;
-          bufferCanvas.width = vw;
-          bufferCanvas.height = vh;
         }
         needsResize = false;
       }
 
-      // ==========================================
-      // 描画ループ (シンプル化)
-      // ==========================================
-      function drawCompositeFrame(timestamp) {
-        requestAnimationFrame(drawCompositeFrame);
-
-        const elapsed = timestamp - lastFrameTime;
-        if (elapsed < FRAME_INTERVAL) return;
-        lastFrameTime = timestamp - (elapsed % FRAME_INTERVAL);
+      // -------------------------------------------------
+      //  描画ループ (先読み再生 & クロスフェード)
+      // -------------------------------------------------
+      function drawLoop() {
+        requestAnimationFrame(drawLoop);
 
         if (needsResize || cachedWidth === 0) {
           updateDimensions();
@@ -359,54 +385,94 @@
 
         const vw = cachedWidth;
         const vh = cachedHeight;
-        
-        // --- 1. カメラ描画 ---
+
+        // 1. カメラ描画
         ctx.globalCompositeOperation = 'source-over';
         ctx.drawImage(cameraVideo, 0, 0, vw, vh);
 
-        // --- 2. 雪動画描画（アスペクト比維持して描画） ---
-        // 動画が止まってたら再生
-        if(snowVideo.paused && !snowVideo.ended) {
-             snowVideo.play().catch(()=>{});
+        // 2. 動画の制御
+        const duration = currentSnowVideo.duration;
+        const currentTime = currentSnowVideo.currentTime;
+
+        // durationが取れていない(NaN)ときは再生だけしてリターン
+        if (!duration || isNaN(duration)) return;
+
+        const timeLeft = duration - currentTime;
+
+        // ★カクつき対策: 「終了2秒前」になったら次の動画を再生開始（まだ見せない）
+        if (timeLeft <= PRELOAD_TIME) {
+          if (nextSnowVideo.paused) {
+             nextSnowVideo.play().catch(()=>{});
+          }
         }
 
-        // バッファをクリアせず上書き (最適化)
-        // アスペクト比計算
-        const videoW = snowVideo.videoWidth;
-        const videoH = snowVideo.videoHeight;
+        // ★クロスフェード処理
+        if (timeLeft <= FADE_DURATION) {
+          // アルファ計算 (1.0 -> 0.0)
+          const alphaCurrent = Math.max(0, timeLeft / FADE_DURATION);
+          const alphaNext = 1.0 - alphaCurrent;
 
-        if (videoW > 0 && videoH > 0) {
-            const canvasAspect = vw / vh;
-            const videoAspect = videoW / videoH;
-            let sx, sy, sw, sh;
+          drawSnow(currentSnowVideo, vw, vh, 1.0); // ベースは消さない
+          drawSnow(nextSnowVideo, vw, vh, alphaNext); // 次の動画を徐々に濃く
 
-            if (canvasAspect > videoAspect) {
-                // キャンバスの方が横長 -> 動画の上下をカット
-                sw = videoW;
-                sh = videoW / canvasAspect;
-                sx = 0;
-                sy = (videoH - sh) / 2;
-            } else {
-                // キャンバスの方が縦長 -> 動画の左右をカット
-                sh = videoH;
-                sw = videoH * canvasAspect;
-                sx = (videoW - sw) / 2;
-                sy = 0;
-            }
-
-            // 直接Canvasに「screen」合成で描画 (バッファを経由しない方が高速だが、
-            // 拡大縮小の品質確保のために drawImage で切り抜き描画)
-            ctx.globalCompositeOperation = 'screen';
-            ctx.drawImage(snowVideo, sx, sy, sw, sh, 0, 0, vw, vh);
+          // 動画の入れ替え（完全に終了 or 残り0.05秒）
+          if (currentSnowVideo.ended || timeLeft <= 0.05) {
+            const temp = currentSnowVideo;
+            currentSnowVideo = nextSnowVideo;
+            nextSnowVideo = temp;
+            
+            // 古い動画を停止＆巻き戻し
+            nextSnowVideo.pause();
+            nextSnowVideo.currentTime = 0;
+          }
+        } else {
+          // 通常再生
+          drawSnow(currentSnowVideo, vw, vh, 1.0);
         }
       }
 
-      // ==========================================
-      // UI イベント
-      // ==========================================
+      function drawSnow(video, cw, ch, alpha) {
+        if (alpha <= 0.01) return;
+        // videoWidthが0なら描画しない
+        if (video.videoWidth === 0) return;
+
+        ctx.globalCompositeOperation = 'screen';
+        ctx.globalAlpha = alpha;
+
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        
+        const canvasAspect = cw / ch;
+        const videoAspect = vw / vh;
+        let sx, sy, sw, sh;
+
+        if (canvasAspect > videoAspect) {
+          sw = vw;
+          sh = vw / canvasAspect;
+          sx = 0;
+          sy = (vh - sh) / 2;
+        } else {
+          sh = vh;
+          sw = vh * canvasAspect;
+          sx = (vw - sw) / 2;
+          sy = 0;
+        }
+
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
+        ctx.globalAlpha = 1.0;
+      }
+
+      // -------------------------------------------------
+      //  撮影・UI機能
+      // -------------------------------------------------
+      const previewModal = document.getElementById('preview-modal');
+      const previewImg = document.getElementById('preview-img');
+      const previewVideo = document.getElementById('preview-video');
+      const btnSaveVideo = document.getElementById('btn-save-video');
+
       function showPreview(type, url, filename) {
-        if (currentPreviewUrl) URL.revokeObjectURL(currentPreviewUrl);
-        currentPreviewUrl = url;
+        if (window.currentPreviewUrl) URL.revokeObjectURL(window.currentPreviewUrl);
+        window.currentPreviewUrl = url;
         previewModal.style.display = 'flex';
         shutterContainer.style.display = 'none';
         flipBtn.style.display = 'none';
@@ -415,73 +481,65 @@
         if (type === 'photo') {
           previewImg.style.display = 'block';
           previewVideo.style.display = 'none';
-          previewMsgPhoto.style.display = 'block';
+          document.getElementById('preview-msg-photo').style.display = 'block';
           btnSaveVideo.style.display = 'none';
           previewImg.src = url;
         } else {
           previewImg.style.display = 'none';
           previewVideo.style.display = 'block';
-          previewMsgPhoto.style.display = 'none';
+          document.getElementById('preview-msg-photo').style.display = 'none';
           btnSaveVideo.style.display = 'block';
-          
           previewVideo.src = url;
-          previewVideo.muted = true; 
           previewVideo.play().catch(()=>{});
-          
-          btnSaveVideo.onclick = () => downloadFile(url, filename);
+          btnSaveVideo.onclick = () => {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          };
         }
       }
 
-      function closePreview() {
+      document.getElementById('btn-close').addEventListener('click', () => {
         previewModal.style.display = 'none';
         previewVideo.pause();
-        previewVideo.src = "";
-        previewImg.src = "";
-        // プレビュー終了時に雪動画を再開
-        if(snowVideo.paused) snowVideo.play().catch(()=>{});
         shutterContainer.style.display = 'block';
         flipBtn.style.display = 'flex';
         reloadBtn.style.display = 'flex';
-      }
-      
-      btnClose.addEventListener('click', closePreview);
-
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") {
-          if (previewModal.style.display === 'none' && startScreen.style.display === 'none') {
-             if (snowVideo.paused) snowVideo.play().catch(()=>{});
-             if (cameraVideo.paused) cameraVideo.play().catch(()=>{});
-          }
-        }
+        // 戻ったら再生再開
+        if(currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
+        if(cameraVideo.paused) cameraVideo.play().catch(()=>{});
       });
 
+      // 撮影
       function takePhoto() {
         if (shutterLock) return;
         shutterLock = true;
-        const flash = document.getElementById('flash');
-        flash.style.opacity = 1;
-        setTimeout(() => flash.style.opacity = 0, 200);
+        document.getElementById('flash').style.opacity = 1;
+        setTimeout(() => document.getElementById('flash').style.opacity = 0, 200);
         const dataURL = canvas.toDataURL('image/png');
         showPreview('photo', dataURL);
         setTimeout(() => { shutterLock = false; }, 1000);
       }
 
+      // 録画
       function startRecording() {
         isRecording = true;
         isLongPress = true;
         shutterContainer.classList.add('recording');
         recordingStartTime = Date.now();
+        
         const stream = canvas.captureStream(30);
         const mimeTypes = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=h264', 'video/webm'];
         const selectedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
+        
         try {
           mediaRecorder = new MediaRecorder(stream, selectedMimeType ? { mimeType: selectedMimeType } : undefined);
-        } catch (e) {
-          mediaRecorder = new MediaRecorder(stream);
-        }
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) recordedChunks.push(event.data);
-        };
+        } catch (e) { mediaRecorder = new MediaRecorder(stream); }
+        
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
         mediaRecorder.onstop = () => {
           const blob = new Blob(recordedChunks, { type: selectedMimeType || 'video/webm' });
           const url = URL.createObjectURL(blob);
@@ -502,22 +560,19 @@
 
       function updateGauge() {
         if (!isRecording) return;
-        const MAX_RECORD_TIME = 10000;
-        const elapsed = Date.now() - recordingStartTime;
-        const progress = Math.min(elapsed / MAX_RECORD_TIME, 1);
+        const progress = Math.min((Date.now() - recordingStartTime) / 10000, 1);
         progressCircle.style.strokeDashoffset = circumference - (progress * circumference);
-        if (progress < 1) requestAnimationFrame(updateGauge);
-        else stopRecording();
+        if (progress < 1) requestAnimationFrame(updateGauge); else stopRecording();
       }
 
+      // シャッターボタンイベント
       const startPress = (e) => {
         if(e.cancelable) e.preventDefault();
         if (isPressing) return;
         isPressing = true;
         isLongPress = false;
-        pressTimer = setTimeout(() => startRecording(), LONG_PRESS_DURATION);
+        pressTimer = setTimeout(startRecording, 500);
       };
-
       const endPress = (e) => {
         if(e.cancelable) e.preventDefault();
         if (!isPressing) return;
@@ -526,21 +581,22 @@
         if (isRecording) stopRecording();
         else if (!isLongPress) takePhoto();
       };
-
+      
       shutterContainer.addEventListener('mousedown', startPress);
       shutterContainer.addEventListener('touchstart', startPress, {passive: false});
       shutterContainer.addEventListener('mouseup', endPress);
       shutterContainer.addEventListener('mouseleave', endPress);
       shutterContainer.addEventListener('touchend', endPress, {passive: false});
 
-      function downloadFile(url, filename) {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
+      // バックグラウンド復帰
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          if (previewModal.style.display === 'none' && startScreen.style.display === 'none') {
+             if (currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
+             if (cameraVideo.paused) cameraVideo.play().catch(()=>{});
+          }
+        }
+      });
     </script>
   </body>
 </html>
