@@ -1,8 +1,11 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Smooth Playback)</title>
+    <title>Snow AR Camera (Preload Optimized)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
+    
+    <link rel="preload" href="snow.mp4" as="video" type="video/mp4">
+
     <style>
       /* 最初の見出し（h1）を消す */
       h1:first-of-type { display: none !important; }
@@ -40,7 +43,7 @@
       #reload-btn { right: 20px; }
       #flip-btn { left: 20px; }
 
-      /* スタート画面（すりガラス風オーバーレイ） */
+      /* スタート画面 */
       #start-screen {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background-color: rgba(0, 0, 0, 0.2); 
@@ -73,14 +76,8 @@
         transition: transform 0.1s, background 0.3s; margin-bottom: 40px; 
       }
       #start-btn:active { transform: scale(0.95); }
-      
-      /* Loading中のスタイル */
       #start-btn:disabled {
-        background: rgba(200, 200, 200, 0.5);
-        color: #555;
-        cursor: wait;
-        transform: none;
-        box-shadow: none;
+        background: rgba(200, 200, 200, 0.5); color: #555; cursor: wait; transform: none; box-shadow: none;
       }
       
       #error-overlay {
@@ -111,32 +108,26 @@
       .btn-save { background-color: white; color: black; }
       .btn-close { background-color: #333; color: white; border: 1px solid #555; }
 
-      /* シャッターボタン (1.3倍仕様) */
+      /* シャッターボタン */
       #shutter-container {
-        position: fixed; bottom: 30px; left: 50%;
-        transform: translateX(-50%);
-        width: 104px; height: 104px;
-        z-index: 100; cursor: pointer;
-        -webkit-tap-highlight-color: transparent; user-select: none;
-        display: none;
+        position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+        width: 104px; height: 104px; z-index: 100; cursor: pointer;
+        -webkit-tap-highlight-color: transparent; user-select: none; display: none;
       }
       .progress-ring {
-        position: absolute; top: 0; left: 0; width: 104px; height: 104px;
-        transform: rotate(-90deg);
+        position: absolute; top: 0; left: 0; width: 104px; height: 104px; transform: rotate(-90deg);
       }
       .progress-ring__circle {
         transition: stroke-dashoffset 0.1s linear; stroke: #ff3b30; stroke-width: 4; fill: transparent;
       }
       #shutter-btn {
-        position: absolute; top: 13px; left: 13px;
-        width: 78px; height: 78px;
+        position: absolute; top: 13px; left: 13px; width: 78px; height: 78px;
         background-color: white; border-radius: 50%;
         transition: all 0.2s; display: flex; justify-content: center; align-items: center;
       }
       #camera-icon { width: 42px; height: 42px; fill: #333; transition: opacity 0.2s; }
       #shutter-container.recording #shutter-btn {
-        width: 40px; height: 40px; top: 32px; left: 32px;
-        border-radius: 4px; background-color: #ff3b30;
+        width: 40px; height: 40px; top: 32px; left: 32px; border-radius: 4px; background-color: #ff3b30;
       }
       #shutter-container.recording #camera-icon { opacity: 0; }
       
@@ -223,7 +214,6 @@
       const previewMsgPhoto = document.getElementById('preview-msg-photo');
       const btnSaveVideo = document.getElementById('btn-save-video');
       const btnClose = document.getElementById('btn-close');
-      
       const errorOverlay = document.getElementById('error-overlay');
       const errorText = document.getElementById('error-text');
       
@@ -258,36 +248,26 @@
         console.error(msg);
       }
 
-      // ■ アプリ初期化（読み込みロジック改善）
+      // ■ アプリ初期化
       async function initApp() {
         try {
           startBtn.textContent = "Loading...";
           startBtn.disabled = true;
 
-          // 動画の準備を待つ関数
-          // 最初の1フレームでも準備できれば(HAVE_FUTURE_DATA = 3)OKとする
           const waitForVideo = (video) => {
             return new Promise((resolve) => {
-              // 既に再生可能なら即解決
               if (video.readyState >= 3) return resolve();
-              
-              // イベントリスナー設置
               const onCanPlay = () => {
                 video.removeEventListener('canplay', onCanPlay);
                 resolve();
               };
               video.addEventListener('canplay', onCanPlay);
-              
-              // 念のためエラーでも進む
-              video.onerror = () => { console.warn("Video Error ignored"); resolve(); };
-              
-              // 読み込み開始トリガー
+              video.onerror = () => { console.warn("Video Warning"); resolve(); };
               if(!video.src) video.src = "snow.mp4";
               video.load();
             });
           };
 
-          // 3秒経ったら強制的にSTARTさせる
           const timeoutPromise = new Promise(resolve => setTimeout(resolve, 3000));
           
           const startupTasks = Promise.all([
@@ -296,7 +276,6 @@
             initCamera(currentFacingMode)
           ]);
 
-          // タスク完了か、タイムアウトか、どっちか早い方
           await Promise.race([startupTasks, timeoutPromise]);
 
           updateDimensions();
@@ -304,13 +283,10 @@
 
           startBtn.textContent = "START";
           startBtn.disabled = false;
-
-          // ここで再生を試みる（ミュートなのでいけるはず）
-          // Promiseの結果を待たずにfire-and-forget
-          snowV1.play().catch(e => console.log("Auto-play blocked, waiting for click"));
+          snowV1.play().catch(e => console.log("Auto-play blocked"));
 
         } catch (err) {
-          showError("エラーが発生しました:\n" + err.message);
+          showError("Error: " + err.message);
           startBtn.textContent = "Error";
         }
       }
@@ -326,17 +302,10 @@
       });
 
       startBtn.addEventListener('click', () => {
-        // スタートボタンを押したタイミングなら確実に再生できる
-        // もし止まっていたら再生
-        if(currentSnowVideo.paused) {
-            currentSnowVideo.play().catch(e => console.warn(e));
-        }
-        
+        if(currentSnowVideo.paused) currentSnowVideo.play().catch(e => console.warn(e));
         startScreen.style.opacity = '0';
         startScreen.style.transform = 'scale(1.1)';
-        
         setTimeout(() => { startScreen.style.display = 'none'; }, 400);
-        
         shutterContainer.style.display = 'block';
         flipBtn.style.display = 'flex';
         reloadBtn.style.display = 'flex';
@@ -349,11 +318,7 @@
         let stream = null;
         try {
           stream = await navigator.mediaDevices.getUserMedia({
-            video: { 
-              facingMode: facingMode,
-              width: { ideal: 1280 }, 
-              height: { ideal: 720 } 
-            },
+            video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
             audio: false 
           });
         } catch (err) {
@@ -382,10 +347,8 @@
         const vw = cameraVideo.videoWidth;
         const vh = cameraVideo.videoHeight;
         if (vw === 0 || vh === 0) return;
-
         cachedWidth = vw;
         cachedHeight = vh;
-
         if (canvas.width !== vw || canvas.height !== vh) {
           canvas.width = vw;
           canvas.height = vh;
@@ -397,7 +360,6 @@
 
       function drawCompositeFrame(timestamp) {
         requestAnimationFrame(drawCompositeFrame);
-
         const elapsed = timestamp - lastFrameTime;
         if (elapsed < FRAME_INTERVAL) return;
         lastFrameTime = timestamp - (elapsed % FRAME_INTERVAL);
@@ -417,11 +379,8 @@
         const duration = currentSnowVideo.duration;
         const currentTime = currentSnowVideo.currentTime;
 
-        // ★ 動画の再生状態チェック強化 ★
-        // 動画の時間が進んでいれば正常
         if (duration && duration > 0) {
           const timeLeft = duration - currentTime;
-          
           if (timeLeft <= FADE_DURATION) {
             if (nextSnowVideo.paused) {
               nextSnowVideo.currentTime = 0;
@@ -438,7 +397,6 @@
               nextSnowVideo.currentTime = 0;
             }
           }
-
           if (currentSnowVideo.ended || timeLeft <= 0) {
             const temp = currentSnowVideo;
             currentSnowVideo = nextSnowVideo;
@@ -447,14 +405,8 @@
             nextSnowVideo.currentTime = 0;
             if(currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
           }
-
         } else {
-          // durationがまだ取れない、もしくは再生されていない
-          // iOS Safariなどでは明示的なクリックが必要な場合があるが、
-          // startBtnクリック時にplay()しているのでここは補助的なキック
-           if(currentSnowVideo.paused) {
-             currentSnowVideo.play().catch(()=>{});
-           }
+           if(currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
         }
 
         ctx.globalCompositeOperation = 'source-over';
@@ -472,19 +424,11 @@
         const canvasAspect = cw / ch;
         const videoAspect = videoW / videoH;
         let sx, sy, sw, sh;
-
         if (canvasAspect > videoAspect) {
-          sw = videoW;
-          sh = videoW / canvasAspect;
-          sx = 0;
-          sy = (videoH - sh) / 2;
+          sw = videoW; sh = videoW / canvasAspect; sx = 0; sy = (videoH - sh) / 2;
         } else {
-          sh = videoH;
-          sw = videoH * canvasAspect;
-          sx = (videoW - sw) / 2;
-          sy = 0;
+          sh = videoH; sw = videoH * canvasAspect; sx = (videoW - sw) / 2; sy = 0;
         }
-
         bufferCtx.globalAlpha = alpha;
         bufferCtx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
         bufferCtx.globalAlpha = 1.0;
@@ -497,7 +441,6 @@
         shutterContainer.style.display = 'none';
         flipBtn.style.display = 'none';
         reloadBtn.style.display = 'none';
-
         if (type === 'photo') {
           previewImg.style.display = 'block';
           previewVideo.style.display = 'none';
