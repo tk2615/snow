@@ -1,7 +1,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Relay Optimized)</title>
+    <title>Snow AR Camera (Instant Start)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
     <style>
       /* 最初の見出し（h1）を消す */
@@ -43,7 +43,8 @@
       /* スタート画面 */
       #start-screen {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background-color: rgba(0, 0, 0, 0.6); z-index: 3000;
+        background-color: rgba(0, 0, 0, 0.8); /* 少し濃くしたで、裏が見えんように */
+        z-index: 3000;
         display: flex; flex-direction: column;
         justify-content: space-between; align-items: center;
         padding: 40px 20px; box-sizing: border-box;
@@ -190,15 +191,13 @@
       
       let currentSnowVideo = snowV1;
       let nextSnowVideo = snowV2;
-      
-      const FADE_DURATION = 1.0; // クロスフェード時間（秒）
+      const FADE_DURATION = 1.0; 
 
       const canvas = document.getElementById('work-canvas');
       const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
       const bufferCanvas = document.createElement('canvas');
       const bufferCtx = bufferCanvas.getContext('2d', { alpha: false, desynchronized: true });
 
-      // UI要素
       const shutterContainer = document.getElementById('shutter-container');
       const progressCircle = document.querySelector('.progress-ring__circle');
       const startScreen = document.getElementById('start-screen');
@@ -219,13 +218,11 @@
       let currentPreviewUrl = null;
       let snowBlobUrl = null;
 
-      // 円周計算
       const radius = progressCircle.r.baseVal.value;
       const circumference = radius * 2 * Math.PI;
       progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
       progressCircle.style.strokeDashoffset = circumference;
 
-      // 録画関連
       let mediaRecorder;
       let recordedChunks = [];
       let isRecording = false;
@@ -258,10 +255,8 @@
           const blob = await response.blob();
           snowBlobUrl = URL.createObjectURL(blob);
           
-          // Blob URLを両方のビデオにセット
           snowV1.src = snowBlobUrl;
           snowV2.src = snowBlobUrl;
-          
           snowV1.loop = false;
           snowV2.loop = false;
           
@@ -273,35 +268,50 @@
         }
       }
 
+      // ■ アプリ初期化（爆速化版）
       async function initApp() {
         try {
-          // 1. まず動画をBlobで読み込む
-          await loadSnowVideo();
+          // Promise.allで「動画読み込み」と「カメラ起動」を並列実行！
+          // どっちが終わるのを待つ必要はない、両方同時に進めるで。
+          await Promise.all([
+            loadSnowVideo(),
+            initCamera(currentFacingMode)
+          ]);
 
-          // 2. 最初の動画を再生開始
-          await snowV1.play().catch(e => console.warn(e));
-          
-          // 3. カメラ起動 (HD画質キープ)
-          await initCamera(currentFacingMode);
-          
+          // 準備ができたら裏で描画ループを開始
           updateDimensions();
           drawCompositeFrame(0);
+
+          // 可能なら裏で再生開始してしまう（ミュートなので自動再生できる可能性大）
+          snowV1.play().catch(e => {
+            console.log("自動再生ブロックされました（想定内）: STARTボタンで再生します");
+          });
 
         } catch (err) {
           showError("エラーが発生しました:\n" + err.message);
         }
       }
 
-      window.onload = initApp;
+      // ページ読み込みの早い段階で初期化スタート
+      // window.onloadより早いDOMContentLoadedでキックする
+      document.addEventListener('DOMContentLoaded', initApp);
       window.addEventListener('resize', () => { needsResize = true; });
 
+      // ■ スタートボタンは「幕を開ける」だけ
       startBtn.addEventListener('click', () => {
+        // もし自動再生がブロックされてたらここで再生（ユーザーアクション内なら確実）
+        if(currentSnowVideo.paused) {
+            currentSnowVideo.play().catch(e => console.warn(e));
+        }
+        
+        // 画面を消す
         startScreen.style.opacity = '0';
         setTimeout(() => { startScreen.style.display = 'none'; }, 500);
+        
+        // UI表示
         shutterContainer.style.display = 'block';
         flipBtn.style.display = 'flex';
         reloadBtn.style.display = 'flex';
-        if(currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
       });
 
       async function initCamera(facingMode) {
@@ -375,7 +385,6 @@
         const vw = cachedWidth;
         const vh = cachedHeight;
         
-        // 背景クリア
         bufferCtx.globalCompositeOperation = 'source-over';
         bufferCtx.fillStyle = '#000000';
         bufferCtx.fillRect(0, 0, vw, vh);
@@ -386,56 +395,42 @@
         if (duration && duration > 0) {
           const timeLeft = duration - currentTime;
           
-          // ★リレーロジック★
-          // 残り時間がフェード時間以下になったら、次のランナー（動画）を走らせる
+          // リレーロジック
           if (timeLeft <= FADE_DURATION) {
-            
-            // 次の動画がまだ止まってたら、ここから助走開始
             if (nextSnowVideo.paused) {
               nextSnowVideo.currentTime = 0;
               nextSnowVideo.play().catch(()=>{});
             }
-            
-            // フェード計算 (今の動画は徐々に透明に、次は不透明に)
             const alphaCurrent = Math.max(0, timeLeft / FADE_DURATION);
             const alphaNext = 1.0 - alphaCurrent;
-
-            // 両方描画
             drawSnowToBuffer(currentSnowVideo, vw, vh, alphaCurrent);
             drawSnowToBuffer(nextSnowVideo, vw, vh, alphaNext);
-
           } else {
-            // ★通常運転モード★
-            // 9割の時間はこっち。1本しか描画しないし、もう1本は確実に止めておく
             drawSnowToBuffer(currentSnowVideo, vw, vh, 1.0);
-            
             if (!nextSnowVideo.paused) {
               nextSnowVideo.pause();
               nextSnowVideo.currentTime = 0;
             }
           }
 
-          // 現在の動画が終わったら、役割交代
           if (currentSnowVideo.ended || timeLeft <= 0) {
-            // 即座に入れ替え
             const temp = currentSnowVideo;
             currentSnowVideo = nextSnowVideo;
             nextSnowVideo = temp;
             
-            // 古い方（元current）は即休憩
             nextSnowVideo.pause();
             nextSnowVideo.currentTime = 0;
             
-            // 新しい方（元next）が確実に再生中か確認
             if(currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
           }
 
         } else {
-           // 万が一再生されてない場合の保険
-           if(currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
+           if(currentSnowVideo.paused && startScreen.style.display === 'none') {
+             // スタート画面が消えているのに止まっていたら再生
+             currentSnowVideo.play().catch(()=>{});
+           }
         }
 
-        // 合成描画
         ctx.globalCompositeOperation = 'source-over';
         ctx.drawImage(cameraVideo, 0, 0, vw, vh);
         ctx.globalCompositeOperation = 'screen';
@@ -469,7 +464,7 @@
         bufferCtx.globalAlpha = 1.0;
       }
 
-      // UIイベント等 (変更なし)
+      // UIイベント
       function showPreview(type, url, filename) {
         if (currentPreviewUrl && currentPreviewUrl !== snowBlobUrl) URL.revokeObjectURL(currentPreviewUrl);
         currentPreviewUrl = url;
@@ -501,13 +496,11 @@
         previewVideo.pause();
         previewVideo.src = "";
         previewImg.src = "";
-        // 再開
         if(currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
         shutterContainer.style.display = 'block';
         flipBtn.style.display = 'flex';
         reloadBtn.style.display = 'flex';
       }
-      
       btnClose.addEventListener('click', closePreview);
 
       document.addEventListener("visibilitychange", () => {
