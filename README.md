@@ -1,7 +1,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (Speed Optimized)</title>
+    <title>Snow AR Camera (Smooth Playback)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
     <style>
       /* 最初の見出し（h1）を消す */
@@ -228,7 +228,6 @@
       const errorText = document.getElementById('error-text');
       
       let currentPreviewUrl = null;
-      // Blob URLは使わへんから削除
 
       const radius = progressCircle.r.baseVal.value;
       const circumference = radius * 2 * Math.PI;
@@ -259,31 +258,36 @@
         console.error(msg);
       }
 
-      // ■ アプリ初期化（スピード重視）
+      // ■ アプリ初期化（読み込みロジック改善）
       async function initApp() {
         try {
           startBtn.textContent = "Loading...";
           startBtn.disabled = true;
 
-          // 動画の読み込み待機用関数（再生可能になったら即resolve）
+          // 動画の準備を待つ関数
+          // 最初の1フレームでも準備できれば(HAVE_FUTURE_DATA = 3)OKとする
           const waitForVideo = (video) => {
             return new Promise((resolve) => {
-              // 既に再生可能なら即OK
+              // 既に再生可能なら即解決
               if (video.readyState >= 3) return resolve();
-              // canplayイベントを待つ
-              video.oncanplay = () => resolve();
-              video.onerror = (e) => { 
-                console.warn("動画読み込み警告:", e); 
-                resolve(); // エラーでも止まらず進む（保険）
+              
+              // イベントリスナー設置
+              const onCanPlay = () => {
+                video.removeEventListener('canplay', onCanPlay);
+                resolve();
               };
-              // 念のため src を再設定してキック
+              video.addEventListener('canplay', onCanPlay);
+              
+              // 念のためエラーでも進む
+              video.onerror = () => { console.warn("Video Error ignored"); resolve(); };
+              
+              // 読み込み開始トリガー
               if(!video.src) video.src = "snow.mp4";
               video.load();
             });
           };
 
-          // 動画とカメラ、どっちも待つけど、動画は「再生できる分」だけでOK
-          // 万が一のために、3秒経ったら強制的に準備完了とする（タイムアウト保険）
+          // 3秒経ったら強制的にSTARTさせる
           const timeoutPromise = new Promise(resolve => setTimeout(resolve, 3000));
           
           const startupTasks = Promise.all([
@@ -292,19 +296,18 @@
             initCamera(currentFacingMode)
           ]);
 
-          // タスク完了か、3秒経過か、早い方を採用
+          // タスク完了か、タイムアウトか、どっちか早い方
           await Promise.race([startupTasks, timeoutPromise]);
 
           updateDimensions();
           drawCompositeFrame(0);
 
-          // 準備完了！ボタン開放
           startBtn.textContent = "START";
           startBtn.disabled = false;
 
-          snowV1.play().catch(e => {
-            console.log("自動再生ブロック: STARTボタンで再生します");
-          });
+          // ここで再生を試みる（ミュートなのでいけるはず）
+          // Promiseの結果を待たずにfire-and-forget
+          snowV1.play().catch(e => console.log("Auto-play blocked, waiting for click"));
 
         } catch (err) {
           showError("エラーが発生しました:\n" + err.message);
@@ -323,6 +326,8 @@
       });
 
       startBtn.addEventListener('click', () => {
+        // スタートボタンを押したタイミングなら確実に再生できる
+        // もし止まっていたら再生
         if(currentSnowVideo.paused) {
             currentSnowVideo.play().catch(e => console.warn(e));
         }
@@ -412,6 +417,8 @@
         const duration = currentSnowVideo.duration;
         const currentTime = currentSnowVideo.currentTime;
 
+        // ★ 動画の再生状態チェック強化 ★
+        // 動画の時間が進んでいれば正常
         if (duration && duration > 0) {
           const timeLeft = duration - currentTime;
           
@@ -436,15 +443,16 @@
             const temp = currentSnowVideo;
             currentSnowVideo = nextSnowVideo;
             nextSnowVideo = temp;
-            
             nextSnowVideo.pause();
             nextSnowVideo.currentTime = 0;
-            
             if(currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
           }
 
         } else {
-           if(currentSnowVideo.paused && startScreen.style.display !== 'none') {
+          // durationがまだ取れない、もしくは再生されていない
+          // iOS Safariなどでは明示的なクリックが必要な場合があるが、
+          // startBtnクリック時にplay()しているのでここは補助的なキック
+           if(currentSnowVideo.paused) {
              currentSnowVideo.play().catch(()=>{});
            }
         }
