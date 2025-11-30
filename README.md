@@ -1,7 +1,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Snow AR Camera (With Audio)</title>
+    <title>Snow AR Camera (Color LUTs)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
     
     <link rel="preload" href="snow.mp4" as="video" type="video/mp4">
@@ -36,12 +36,24 @@
         border-radius: 50%; color: white; cursor: pointer;
         display: flex; justify-content: center; align-items: center;
         backdrop-filter: blur(4px); -webkit-tap-highlight-color: transparent; 
-        transition: background 0.2s; display: none;
+        transition: background 0.2s; display: none; /* 初期は非表示 */
       }
       .icon-btn:active { background: rgba(255, 255, 255, 0.3); }
       .icon-btn svg { width: 24px; height: 24px; fill: white; }
+      
       #reload-btn { right: 20px; }
       #flip-btn { left: 20px; }
+      /* フィルターボタン（フリップの隣に追加） */
+      #filter-btn { left: 80px; }
+
+      /* 現在のフィルター名表示 */
+      #filter-name-toast {
+        position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+        background: rgba(0,0,0,0.6); color: white; padding: 8px 16px;
+        border-radius: 20px; font-size: 14px; font-weight: bold;
+        pointer-events: none; opacity: 0; transition: opacity 0.3s;
+        z-index: 600; letter-spacing: 1px;
+      }
 
       /* スタート画面 */
       #start-screen {
@@ -101,8 +113,6 @@
         border-radius: 8px; box-shadow: 0 0 20px rgba(0,0,0,0.5);
         margin-bottom: 30px; object-fit: contain;
       }
-      /* プレビュー動画は音を出して確認したいので pointer-events: none は外すか、再生ボタンが欲しいが
-         ここではタップで再生コントロールが出るようにしておく */
       #preview-video { pointer-events: auto; }
       
       .preview-text { font-size: 14px; margin-bottom: 20px; color: #ccc; }
@@ -139,15 +149,57 @@
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background: white; opacity: 0; pointer-events: none; z-index: 200; transition: opacity 0.2s;
       }
+
+      /* ログ画面 */
+      #admin-log {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background-color: rgba(0, 0, 0, 0.85);
+        color: #00ff00; font-family: "Courier New", Courier, monospace;
+        z-index: 9999; display: none;
+        flex-direction: column; justify-content: center; align-items: center;
+        padding: 40px; box-sizing: border-box;
+      }
+      #admin-log h2 { border-bottom: 2px solid #00ff00; padding-bottom: 10px; margin-bottom: 20px; }
+      .log-section { margin-bottom: 30px; width: 100%; max-width: 600px; }
+      .log-row { display: flex; justify-content: space-between; border-bottom: 1px dashed #333; padding: 10px 0; font-size: 18px; }
+      .log-row span:last-child { font-weight: bold; }
+      .close-log {
+        margin-top: 30px; padding: 10px 30px; background: transparent; 
+        border: 2px solid #00ff00; color: #00ff00; font-size: 16px; cursor: pointer;
+      }
+      .close-log:hover { background: #00ff00; color: black; }
     </style>
   </head>
   <body>
+    <div id="admin-log">
+      <h2>ADMIN LOG (Local Device)</h2>
+      <div class="log-section">
+        <h3>[ TOTAL (All Time) ]</h3>
+        <div class="log-row"><span>Access:</span><span id="log-total-access">0</span></div>
+        <div class="log-row"><span>Photo Taken:</span><span id="log-total-photo">0</span></div>
+        <div class="log-row"><span>Video Taken:</span><span id="log-total-video">0</span></div>
+      </div>
+      <div class="log-section">
+        <h3>[ TODAY (<span id="log-date"></span>) ]</h3>
+        <div class="log-row"><span>Access:</span><span id="log-today-access">0</span></div>
+        <div class="log-row"><span>Photo Taken:</span><span id="log-today-photo">0</span></div>
+        <div class="log-row"><span>Video Taken:</span><span id="log-today-video">0</span></div>
+      </div>
+      <button class="close-log" onclick="toggleLog()">CLOSE (Cmd+K)</button>
+    </div>
+
     <button id="reload-btn" class="icon-btn">
       <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
     </button>
     <button id="flip-btn" class="icon-btn">
       <svg viewBox="0 0 24 24"><path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-5 11.5V13H9v2.5L5.5 12 9 8.5V11h6V8.5l3.5 3.5-3.5 3.5z"/></svg>
     </button>
+    
+    <button id="filter-btn" class="icon-btn">
+      <svg viewBox="0 0 24 24"><path d="M7.5 5.6L10 7 8.6 4.5 10 2 7.5 3.4 5 2 6.4 4.5 5 7zM19.5 15.4L17 14l1.4 2.5L17 19l2.5-1.4L22 19l-1.4-2.5L22 14zM22 2l-2.5 1.4L17 2l1.4 2.5L17 7l2.5-1.4L22 7l-1.4-2.5zm-8.8 9.2L7.83 6.42 5 16.17l9.75-2.83zM6.69 14.89l1.63-5.62 3.99 3.99-5.62 1.63z"/></svg>
+    </button>
+
+    <div id="filter-name-toast">Normal</div>
 
     <div id="start-screen">
       <div id="howto-container">
@@ -192,10 +244,85 @@
     <div id="flash"></div>
 
     <script>
+      // ログ管理
+      const StatsManager = {
+        key: 'snow_ar_stats_v1',
+        data: { total: { access: 0, photo: 0, video: 0 }, days: {} },
+        init() {
+          const stored = localStorage.getItem(this.key);
+          if (stored) this.data = JSON.parse(stored);
+          this.increment('access');
+        },
+        save() {
+          localStorage.setItem(this.key, JSON.stringify(this.data));
+          this.updateUI();
+        },
+        getTodayStr() {
+          const d = new Date();
+          return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        },
+        increment(type) {
+          if (!this.data.total[type]) this.data.total[type] = 0;
+          this.data.total[type]++;
+          const today = this.getTodayStr();
+          if (!this.data.days[today]) this.data.days[today] = { access: 0, photo: 0, video: 0 };
+          if (!this.data.days[today][type]) this.data.days[today][type] = 0;
+          this.data.days[today][type]++;
+          this.save();
+        },
+        updateUI() {
+          const today = this.getTodayStr();
+          const todayData = this.data.days[today] || { access: 0, photo: 0, video: 0 };
+          document.getElementById('log-total-access').textContent = this.data.total.access;
+          document.getElementById('log-total-photo').textContent = this.data.total.photo;
+          document.getElementById('log-total-video').textContent = this.data.total.video;
+          document.getElementById('log-date').textContent = today;
+          document.getElementById('log-today-access').textContent = todayData.access;
+          document.getElementById('log-today-photo').textContent = todayData.photo;
+          document.getElementById('log-today-video').textContent = todayData.video;
+        }
+      };
+
+      document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+          e.preventDefault();
+          toggleLog();
+        }
+      });
+      function toggleLog() {
+        const log = document.getElementById('admin-log');
+        if (log.style.display === 'flex') { log.style.display = 'none'; } 
+        else { StatsManager.updateUI(); log.style.display = 'flex'; }
+      }
+
+      // --- フィルター設定 (LUT風) ---
+      const filterBtn = document.getElementById('filter-btn');
+      const filterNameToast = document.getElementById('filter-name-toast');
+      
+      const filters = [
+        { name: "Normal", value: "none" },
+        { name: "Retro", value: "sepia(0.4) contrast(1.1) brightness(0.9) saturate(0.8)" },
+        { name: "Film", value: "contrast(1.2) saturate(1.2) brightness(1.1)" },
+        { name: "B&W", value: "grayscale(1) contrast(1.2)" },
+        { name: "Cool", value: "saturate(0.9) hue-rotate(10deg) contrast(1.1) brightness(1.05)" },
+        { name: "Warm", value: "sepia(0.2) saturate(1.3) contrast(1.05)" }
+      ];
+      
+      let currentFilterIndex = 0;
+      
+      filterBtn.addEventListener('click', () => {
+        currentFilterIndex = (currentFilterIndex + 1) % filters.length;
+        const currentFilter = filters[currentFilterIndex];
+        
+        // トースト表示
+        filterNameToast.textContent = currentFilter.name;
+        filterNameToast.style.opacity = 1;
+        setTimeout(() => { filterNameToast.style.opacity = 0; }, 1500);
+      });
+
       const cameraVideo = document.getElementById('camera-feed');
       const snowV1 = document.getElementById('snow-1');
       const snowV2 = document.getElementById('snow-2');
-      
       let currentSnowVideo = snowV1;
       let nextSnowVideo = snowV2;
       const FADE_DURATION = 1.0; 
@@ -222,7 +349,6 @@
       const errorText = document.getElementById('error-text');
       
       let currentPreviewUrl = null;
-
       const radius = progressCircle.r.baseVal.value;
       const circumference = radius * 2 * Math.PI;
       progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
@@ -254,6 +380,7 @@
 
       async function initApp() {
         try {
+          StatsManager.init();
           startBtn.textContent = "Loading...";
           startBtn.disabled = true;
 
@@ -272,7 +399,6 @@
           };
 
           const timeoutPromise = new Promise(resolve => setTimeout(resolve, 3000));
-          
           const startupTasks = Promise.all([
             waitForVideo(snowV1),
             waitForVideo(snowV2),
@@ -309,9 +435,11 @@
         startScreen.style.opacity = '0';
         startScreen.style.transform = 'scale(1.1)';
         setTimeout(() => { startScreen.style.display = 'none'; }, 400);
+        
         shutterContainer.style.display = 'block';
         flipBtn.style.display = 'flex';
         reloadBtn.style.display = 'flex';
+        filterBtn.style.display = 'flex'; // フィルターボタン表示
       });
 
       async function initCamera(facingMode) {
@@ -320,13 +448,11 @@
         }
         let stream = null;
         try {
-          // ★ AudioをTrueにしてマイクも取得
           stream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
             audio: true 
           });
         } catch (err) {
-          // マイクがだめでも映像だけでリトライ
           try {
              stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode }, audio: false });
           } catch(e) { throw e; }
@@ -414,8 +540,14 @@
            if(currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
         }
 
+        // --- 描画 (フィルター適用) ---
+        // 1. フィルターを適用してカメラ映像を描画
         ctx.globalCompositeOperation = 'source-over';
+        ctx.filter = filters[currentFilterIndex].value;
         ctx.drawImage(cameraVideo, 0, 0, vw, vh);
+        
+        // 2. フィルターをリセットして雪を描画
+        ctx.filter = 'none';
         ctx.globalCompositeOperation = 'screen';
         ctx.drawImage(bufferCanvas, 0, 0);
       }
@@ -431,160 +563,3 @@
         let sx, sy, sw, sh;
         if (canvasAspect > videoAspect) {
           sw = videoW; sh = videoW / canvasAspect; sx = 0; sy = (videoH - sh) / 2;
-        } else {
-          sh = videoH; sw = videoH * canvasAspect; sx = (videoW - sw) / 2; sy = 0;
-        }
-        bufferCtx.globalAlpha = alpha;
-        bufferCtx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
-        bufferCtx.globalAlpha = 1.0;
-      }
-
-      function showPreview(type, url, filename) {
-        if (currentPreviewUrl) URL.revokeObjectURL(currentPreviewUrl);
-        currentPreviewUrl = url;
-        previewModal.style.display = 'flex';
-        shutterContainer.style.display = 'none';
-        flipBtn.style.display = 'none';
-        reloadBtn.style.display = 'none';
-        if (type === 'photo') {
-          previewImg.style.display = 'block';
-          previewVideo.style.display = 'none';
-          previewMsgPhoto.style.display = 'block';
-          btnSaveVideo.style.display = 'none';
-          previewImg.src = url;
-        } else {
-          previewImg.style.display = 'none';
-          previewVideo.style.display = 'block';
-          previewMsgPhoto.style.display = 'none';
-          btnSaveVideo.style.display = 'block';
-          previewVideo.src = url;
-          // 音声確認のためmutedを外す（自動再生は効かないかもなのでcontrolsつける）
-          previewVideo.muted = false; 
-          previewVideo.controls = true;
-          previewVideo.play().catch(()=>{});
-          btnSaveVideo.onclick = () => downloadFile(url, filename);
-        }
-      }
-
-      function closePreview() {
-        previewModal.style.display = 'none';
-        previewVideo.pause();
-        previewVideo.src = "";
-        previewImg.src = "";
-        if(currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
-        shutterContainer.style.display = 'block';
-        flipBtn.style.display = 'flex';
-        reloadBtn.style.display = 'flex';
-      }
-      btnClose.addEventListener('click', closePreview);
-
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") {
-          if (previewModal.style.display === 'none') {
-             if (currentSnowVideo.paused) currentSnowVideo.play().catch(()=>{});
-             if (cameraVideo.paused) cameraVideo.play().catch(()=>{});
-          }
-        }
-      });
-
-      function takePhoto() {
-        if (shutterLock) return;
-        shutterLock = true;
-        const flash = document.getElementById('flash');
-        flash.style.opacity = 1;
-        setTimeout(() => flash.style.opacity = 0, 200);
-        const dataURL = canvas.toDataURL('image/png');
-        showPreview('photo', dataURL);
-        setTimeout(() => { shutterLock = false; }, 1000);
-      }
-
-      function startRecording() {
-        isRecording = true;
-        isLongPress = true;
-        shutterContainer.classList.add('recording');
-        recordingStartTime = Date.now();
-        
-        // ★ 映像ストリーム
-        const canvasStream = canvas.captureStream(30);
-        
-        // ★ 音声ストリームの抽出と結合
-        let finalStream = canvasStream;
-        if (cameraVideo.srcObject) {
-          const audioTracks = cameraVideo.srcObject.getAudioTracks();
-          if (audioTracks.length > 0) {
-            // 映像トラックと音声トラックを混ぜた新しいストリームを作る
-            finalStream = new MediaStream([...canvasStream.getTracks(), ...audioTracks]);
-          }
-        }
-
-        const mimeTypes = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=h264', 'video/webm'];
-        const selectedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
-        try {
-          mediaRecorder = new MediaRecorder(finalStream, selectedMimeType ? { mimeType: selectedMimeType } : undefined);
-        } catch (e) {
-          mediaRecorder = new MediaRecorder(finalStream);
-        }
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) recordedChunks.push(event.data);
-        };
-        mediaRecorder.onstop = () => {
-          const blob = new Blob(recordedChunks, { type: selectedMimeType || 'video/webm' });
-          const url = URL.createObjectURL(blob);
-          let ext = (selectedMimeType && selectedMimeType.includes('mp4')) ? 'mp4' : 'webm';
-          showPreview('video', url, `snow_video_${Date.now()}.${ext}`);
-          recordedChunks = [];
-        };
-        mediaRecorder.start();
-        updateGauge();
-      }
-
-      function stopRecording() {
-        isRecording = false;
-        shutterContainer.classList.remove('recording');
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-        progressCircle.style.strokeDashoffset = circumference;
-      }
-
-      function updateGauge() {
-        if (!isRecording) return;
-        const MAX_RECORD_TIME = 10000;
-        const elapsed = Date.now() - recordingStartTime;
-        const progress = Math.min(elapsed / MAX_RECORD_TIME, 1);
-        progressCircle.style.strokeDashoffset = circumference - (progress * circumference);
-        if (progress < 1) requestAnimationFrame(updateGauge);
-        else stopRecording();
-      }
-
-      const startPress = (e) => {
-        if(e.cancelable) e.preventDefault();
-        if (isPressing) return;
-        isPressing = true;
-        isLongPress = false;
-        pressTimer = setTimeout(() => startRecording(), LONG_PRESS_DURATION);
-      };
-      const endPress = (e) => {
-        if(e.cancelable) e.preventDefault();
-        if (!isPressing) return;
-        isPressing = false;
-        clearTimeout(pressTimer);
-        if (isRecording) stopRecording();
-        else if (!isLongPress) takePhoto();
-      };
-
-      shutterContainer.addEventListener('mousedown', startPress);
-      shutterContainer.addEventListener('touchstart', startPress, {passive: false});
-      shutterContainer.addEventListener('mouseup', endPress);
-      shutterContainer.addEventListener('mouseleave', endPress);
-      shutterContainer.addEventListener('touchend', endPress, {passive: false});
-
-      function downloadFile(url, filename) {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
-    </script>
-  </body>
-</html>
